@@ -80,7 +80,7 @@ defmodule SymphonyElixir.OpenCode.AppServer do
            request: request,
            base_url: base_url,
            session_id: session_id,
-           metadata: metadata,
+           metadata: Map.put(metadata, :opencode_base_url, base_url),
            workspace: expanded_workspace,
            agent: settings.agent,
            model: settings.model,

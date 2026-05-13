@@ -178,15 +178,17 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
                }
              }
            }
-         },
-         timestamp: now,
-         agent_server_pid: "4242"
-       }}
+          },
+          timestamp: now,
+          agent_server_pid: "4242",
+          opencode_base_url: "http://127.0.0.1:43210"
+        }}
     )
 
     snapshot = GenServer.call(pid, :snapshot)
     assert %{running: [snapshot_entry]} = snapshot
     assert snapshot_entry.agent_server_pid == "4242"
+    assert snapshot_entry.opencode_base_url == "http://127.0.0.1:43210"
     assert snapshot_entry.agent_input_tokens == 12
     assert snapshot_entry.agent_output_tokens == 4
     assert snapshot_entry.agent_total_tokens == 16
@@ -1908,6 +1910,26 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
 
     assert String.length(plain) == terminal_columns
     assert plain =~ "turn completed (completed)"
+  end
+
+  test "status dashboard renders OpenCode base URL detail line" do
+    lines =
+      StatusDashboard.format_running_entry_for_test(%{
+        identifier: "MT-900",
+        state: "running",
+        backend: "opencode",
+        session_id: "session-opencode",
+        agent_server_pid: "4242",
+        opencode_base_url: "http://127.0.0.1:43210",
+        agent_total_tokens: 12,
+        runtime_seconds: 15,
+        last_agent_event: :turn_started,
+        last_agent_message: "started"
+      })
+
+    plain = lines |> Enum.join("\n") |> Regex.replace(~r/\e\[[0-9;]*m/, "")
+
+    assert plain =~ "OpenCode: http://127.0.0.1:43210"
   end
 
   test "status dashboard humanizes full codex app-server event set" do

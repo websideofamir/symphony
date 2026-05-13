@@ -902,6 +902,7 @@ defmodule SymphonyElixir.Orchestrator do
           last_agent_timestamp: nil,
           last_agent_event: nil,
           agent_server_pid: nil,
+          opencode_base_url: nil,
           agent_input_tokens: 0,
           agent_output_tokens: 0,
           agent_total_tokens: 0,
@@ -1492,6 +1493,7 @@ defmodule SymphonyElixir.Orchestrator do
       account_failure_reason: account_failure_reason(metadata),
       session_id: metadata.session_id,
       agent_server_pid: running_entry_agent_server_pid(metadata),
+      opencode_base_url: Map.get(metadata, :opencode_base_url),
       agent_input_tokens: running_entry_input_tokens(metadata),
       agent_output_tokens: running_entry_output_tokens(metadata),
       agent_total_tokens: running_entry_total_tokens(metadata),
@@ -1667,6 +1669,7 @@ defmodule SymphonyElixir.Orchestrator do
     agent_output_tokens = Map.get(running_entry, :agent_output_tokens, 0)
     agent_total_tokens = Map.get(running_entry, :agent_total_tokens, 0)
     agent_server_pid = Map.get(running_entry, :agent_server_pid)
+    opencode_base_url = Map.get(running_entry, :opencode_base_url)
     last_reported_input = Map.get(running_entry, :agent_last_reported_input_tokens, 0)
     last_reported_output = Map.get(running_entry, :agent_last_reported_output_tokens, 0)
     last_reported_total = Map.get(running_entry, :agent_last_reported_total_tokens, 0)
@@ -1679,6 +1682,7 @@ defmodule SymphonyElixir.Orchestrator do
         session_id: session_id_for_update(running_entry.session_id, update),
         last_agent_event: event,
         agent_server_pid: agent_server_pid_for_update(agent_server_pid, update),
+        opencode_base_url: opencode_base_url_for_update(opencode_base_url, update),
         agent_input_tokens: agent_input_tokens + token_delta.input_tokens,
         agent_output_tokens: agent_output_tokens + token_delta.output_tokens,
         agent_total_tokens: agent_total_tokens + token_delta.total_tokens,
@@ -1714,6 +1718,16 @@ defmodule SymphonyElixir.Orchestrator do
     do: to_string(pid)
 
   defp agent_server_pid_for_update(existing, _update), do: existing
+
+  defp opencode_base_url_for_update(_existing, %{opencode_base_url: base_url})
+       when is_binary(base_url),
+       do: base_url
+
+  defp opencode_base_url_for_update(_existing, %{"opencode_base_url" => base_url})
+       when is_binary(base_url),
+       do: base_url
+
+  defp opencode_base_url_for_update(existing, _update), do: existing
 
   defp session_id_for_update(_existing, %{session_id: session_id}) when is_binary(session_id),
     do: session_id

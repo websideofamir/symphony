@@ -426,7 +426,8 @@ defmodule SymphonyElixir.AppServerTest do
 
       assert_receive {:agent_message, %{event: :turn_started, session_id: "session-test"}}, 1_000
       assert_receive {:agent_message, %{event: "session.status", payload: %{"payload" => %{"type" => "session.status"}}}}, 1_000
-      assert_receive {:agent_message, %{event: "message.part.delta"}}, 1_000
+      assert_receive {:agent_message, %{event: "message.part.delta", opencode_base_url: base_url}}, 1_000
+      assert base_url == server.base_url
       assert_receive {:agent_message, %{event: "message.part.updated", usage: %{input: 7, output: 2, reasoning: 1, total: 10}}}, 1_000
       assert_receive {:agent_message, %{event: "message.updated", usage: %{input: 12, output: 4, reasoning: 3, total: 19}}}, 1_000
       assert_receive {:agent_message, %{event: :turn_completed, usage: %{input: 12, output: 4, reasoning: 3, total: 19}}}, 1_000

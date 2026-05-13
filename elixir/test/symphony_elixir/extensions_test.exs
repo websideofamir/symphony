@@ -367,6 +367,7 @@ defmodule SymphonyElixir.ExtensionsTest do
              "effort",
              "account_id",
              "account_email",
+             "opencode_base_url",
              "session_id",
              "turn_count",
              "last_event",
@@ -383,10 +384,11 @@ defmodule SymphonyElixir.ExtensionsTest do
              "state" => "In Progress",
              "project_slug" => "project",
              "project_name" => "Project",
-             "backend" => "claude",
+             "backend" => "opencode",
              "effort" => "max",
-             "account_id" => "claude-primary",
-             "account_email" => "claude@example.com",
+             "account_id" => nil,
+             "account_email" => nil,
+             "opencode_base_url" => "http://127.0.0.1:43210",
              "session_id" => "thread-http",
              "turn_count" => 7,
              "last_event" => "notification",
@@ -435,19 +437,7 @@ defmodule SymphonyElixir.ExtensionsTest do
              "progress" => %{"label" => "Backoff", "percent" => 38, "tone" => "warning"}
            }
 
-    assert [
-             %{
-               "backend" => "claude",
-               "id" => "claude-primary",
-               "label" => "claude@example.com",
-               "running_count" => 1,
-               "total_tokens" => 12,
-               "rate_limit_buckets" => [
-                 %{"bucket" => "session", "limit" => 100, "remaining" => 80},
-                 %{"bucket" => "weekly", "limit" => 1000, "remaining" => 900}
-               ]
-             }
-           ] = state_payload["accounts"]
+    assert [%{"backend" => "host", "id" => "host-auth", "running_count" => 1}] = state_payload["accounts"]
 
     assert [
              %{
@@ -506,6 +496,7 @@ defmodule SymphonyElixir.ExtensionsTest do
              "account_email",
              "worker_host",
              "workspace_path",
+             "opencode_base_url",
              "session_id",
              "turn_count",
              "state",
@@ -516,12 +507,13 @@ defmodule SymphonyElixir.ExtensionsTest do
              "tokens",
              "progress"
            ]) == %{
-             "backend" => "claude",
+             "backend" => "opencode",
              "effort" => "max",
-             "account_id" => "claude-primary",
-             "account_email" => "claude@example.com",
+             "account_id" => nil,
+             "account_email" => nil,
              "worker_host" => nil,
              "workspace_path" => nil,
+             "opencode_base_url" => "http://127.0.0.1:43210",
              "session_id" => "thread-http",
              "turn_count" => 7,
              "state" => "In Progress",
@@ -670,6 +662,9 @@ defmodule SymphonyElixir.ExtensionsTest do
     assert html =~ "Live"
     assert html =~ "Offline"
     assert html =~ "Copy ID"
+    assert html =~ "OpenCode:"
+    assert html =~ "http://127.0.0.1:43210"
+    assert html =~ "Copy URL"
     assert html =~ "Agent update"
     refute html =~ "data-runtime-clock="
     refute html =~ "setInterval(refreshRuntimeClocks"
@@ -816,8 +811,6 @@ defmodule SymphonyElixir.ExtensionsTest do
   end
 
   defp static_snapshot do
-    today = Date.utc_today() |> Date.to_iso8601()
-
     %{
       running: [
         %{
@@ -830,27 +823,14 @@ defmodule SymphonyElixir.ExtensionsTest do
           project_slug: "project",
           project_name: "Project",
           labels: ["thinking/max"],
-          backend: "claude",
+          backend: "opencode",
           effort: "max",
-          account: %{
-            backend: "claude",
-            id: "claude-primary",
-            email: "claude@example.com",
-            state: "healthy",
-            credential_kind: "claude_oauth_token",
-            latest_rate_limits: %{
-              "session" => %{"limit" => 100, "remaining" => 80},
-              "weekly" => %{"limit" => 1_000, "remaining" => 900}
-            },
-            token_totals: %{
-              "total" => %{"input_tokens" => 4, "output_tokens" => 8, "total_tokens" => 12},
-              "daily" => %{"period" => today, "input_tokens" => 4, "output_tokens" => 8, "total_tokens" => 12}
-            }
-          },
-          account_id: "claude-primary",
-          account_email: "claude@example.com",
+          account: nil,
+          account_id: nil,
+          account_email: nil,
           account_state: "healthy",
           account_credential_kind: "claude_oauth_token",
+          opencode_base_url: "http://127.0.0.1:43210",
           session_id: "thread-http",
           turn_count: 7,
           agent_server_pid: nil,

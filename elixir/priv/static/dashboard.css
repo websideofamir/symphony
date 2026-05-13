@@ -678,6 +678,10 @@ pre,
   font-size: 0.78rem;
 }
 
+.event-meta .copy-button {
+  margin-left: 0.35rem;
+}
+
 .muted {
   color: var(--muted);
 }

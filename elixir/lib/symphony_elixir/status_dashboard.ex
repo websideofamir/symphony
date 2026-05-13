@@ -600,8 +600,12 @@ defmodule SymphonyElixir.StatusDashboard do
     else
       running
       |> Enum.sort_by(& &1.identifier)
-      |> Enum.map(&format_running_summary(&1, running_event_width))
+      |> Enum.flat_map(&format_running_entry(&1, running_event_width))
     end
+  end
+
+  defp format_running_entry(running_entry, running_event_width) do
+    [format_running_summary(running_entry, running_event_width)] ++ opencode_base_url_lines(running_entry)
   end
 
   # credo:disable-for-next-line
@@ -666,6 +670,11 @@ defmodule SymphonyElixir.StatusDashboard do
   @spec format_running_summary_for_test(map(), integer() | nil) :: String.t()
   def format_running_summary_for_test(running_entry, terminal_columns \\ nil),
     do: format_running_summary(running_entry, running_event_width(terminal_columns))
+
+  @doc false
+  @spec format_running_entry_for_test(map(), integer() | nil) :: [String.t()]
+  def format_running_entry_for_test(running_entry, terminal_columns \\ nil),
+    do: format_running_entry(running_entry, running_event_width(terminal_columns))
 
   @doc false
   @spec format_tps_for_test(number()) :: String.t()
@@ -850,6 +859,12 @@ defmodule SymphonyElixir.StatusDashboard do
   end
 
   defp running_account_prefix(_running_entry), do: nil
+
+  defp opencode_base_url_lines(%{opencode_base_url: base_url}) when is_binary(base_url) and base_url != "" do
+    ["│     " <> colorize("OpenCode: ", @ansi_bold) <> colorize(base_url, @ansi_cyan)]
+  end
+
+  defp opencode_base_url_lines(_running_entry), do: []
 
   defp account_status(label, state, reset_at) do
     state_part =

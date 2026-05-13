@@ -345,6 +345,18 @@ defmodule SymphonyElixirWeb.DashboardLive do
                             · <span class="mono numeric"><%= entry.last_event_at %></span>
                           <% end %>
                         </span>
+                        <span :if={entry[:opencode_base_url]} class="muted event-meta">
+                          OpenCode: <a class="issue-link mono" href={entry.opencode_base_url} target="_blank" rel="noreferrer"><%= entry.opencode_base_url %></a>
+                          <button
+                            type="button"
+                            class="copy-button"
+                            data-label="Copy URL"
+                            data-copy={entry.opencode_base_url}
+                            onclick="navigator.clipboard.writeText(this.dataset.copy); this.textContent = 'Copied'; clearTimeout(this._copyTimer); this._copyTimer = setTimeout(() => { this.textContent = this.dataset.label }, 1200);"
+                          >
+                            Copy URL
+                          </button>
+                        </span>
                       </div>
                     </td>
                     <td>
