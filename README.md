@@ -21,7 +21,7 @@ The experimental Elixir implementation currently supports:
 - Linear label-based thinking/effort switching with labels like `thinking/high` and
   `thinking/max`.
 - Linear label-based OpenCode agent switching with labels like `agent:review`.
-- Linear label-based serial lanes with labels like `serial:release`.
+- Linear label-based serial lanes with Linear grouped labels like `serial/release`.
 
 If you want to try those features, start with [elixir/README.md](elixir/README.md), which now
 documents backend support, multi-project setup, and label-routing behavior in detail.
@@ -46,7 +46,7 @@ Tell your favorite coding agent to build Symphony in a programming language of y
 Check out [elixir/README.md](elixir/README.md) for instructions on how to set up your environment
 and run the Elixir-based Symphony implementation. It includes setup guidance for OpenCode, Claude
 Code, multi-project routing, and Linear label-based backend, effort, and OpenCode agent switching.
-It also documents `serial:<group>` labels for preventing related issues from running concurrently.
+It also documents `serial/<group>` labels for preventing related issues from running concurrently.
 You can also ask your favorite coding agent to help with the setup:
 
 > Set up Symphony for my repository based on

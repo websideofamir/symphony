@@ -13,6 +13,7 @@ defmodule SymphonyElixir.Orchestrator do
   @continuation_retry_delay_ms 1_000
   @failure_retry_base_ms 10_000
   @serial_label_prefix "serial:"
+  @serial_grouped_label_prefix "serial/"
   # Slightly above the dashboard render interval so "checking now…" can render.
   @poll_transition_render_delay_ms 20
   @empty_codex_totals %{
@@ -1887,18 +1888,29 @@ defmodule SymphonyElixir.Orchestrator do
   defp serial_group_label_value(value) when is_binary(value) do
     normalized = value |> String.trim() |> String.downcase()
 
-    if String.starts_with?(normalized, @serial_label_prefix) do
-      normalized
-      |> String.replace_prefix(@serial_label_prefix, "")
-      |> String.trim()
-      |> case do
-        "" -> nil
-        group -> group
-      end
+    cond do
+      String.starts_with?(normalized, @serial_grouped_label_prefix) ->
+        serial_group_value(normalized, @serial_grouped_label_prefix)
+
+      String.starts_with?(normalized, @serial_label_prefix) ->
+        serial_group_value(normalized, @serial_label_prefix)
+
+      true ->
+        nil
     end
   end
 
   defp serial_group_label_value(_value), do: nil
+
+  defp serial_group_value(label, prefix) do
+    label
+    |> String.replace_prefix(prefix, "")
+    |> String.trim()
+    |> case do
+      "" -> nil
+      group -> group
+    end
+  end
 
   defp running_entry_backend(running_entry) when is_map(running_entry) do
     Map.get(running_entry, :backend) ||

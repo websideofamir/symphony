@@ -543,7 +543,8 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       "labels" => %{
         "nodes" => [
           %{"name" => "Claude"},
-          %{"name" => "Low", "parent" => %{"name" => "Thinking"}}
+          %{"name" => "Low", "parent" => %{"name" => "Thinking"}},
+          %{"name" => "1", "parent" => %{"name" => "Serial"}}
         ]
       },
       "inverseRelations" => %{"nodes" => []},
@@ -553,7 +554,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
     issue = Client.normalize_issue_for_test(raw_issue, "user-1")
 
-    assert issue.labels == ["claude", "thinking/low"]
+    assert issue.labels == ["claude", "thinking/low", "serial/1"]
     assert SymphonyElixir.AgentRoute.resolve(issue).backend == "claude"
     assert SymphonyElixir.AgentRoute.resolve(issue).effort == "low"
   end
@@ -767,7 +768,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       identifier: "MT-1100",
       title: "Running serial work",
       state: "In Progress",
-      labels: ["serial:release"]
+      labels: ["serial/release"]
     }
 
     state = %Orchestrator.State{
@@ -785,7 +786,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       identifier: "MT-1101",
       title: "Waiting serial work",
       state: "Todo",
-      labels: ["serial:release"]
+      labels: ["serial/release"]
     }
 
     different_group_issue = %Issue{
@@ -793,7 +794,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       identifier: "MT-1102",
       title: "Independent serial work",
       state: "Todo",
-      labels: ["serial:frontend"]
+      labels: ["serial/frontend"]
     }
 
     parallel_issue = %Issue{
@@ -818,7 +819,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       retry_attempts: %{
         "serial-retry-1" => %{
           attempt: 1,
-          labels: ["serial:release"]
+          labels: ["serial/release"]
         }
       }
     }
@@ -828,7 +829,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       identifier: "MT-1105",
       title: "Waiting on retry lane",
       state: "Todo",
-      labels: ["serial:release"]
+      labels: ["serial/release"]
     }
 
     different_group_issue = %Issue{
@@ -836,7 +837,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       identifier: "MT-1106",
       title: "Different retry lane",
       state: "Todo",
-      labels: ["serial:frontend"]
+      labels: ["serial/frontend"]
     }
 
     refute Orchestrator.should_dispatch_issue_for_test(same_group_issue, state)
@@ -849,10 +850,10 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       identifier: "MT-1104",
       title: "Normalized serial labels",
       state: "Todo",
-      labels: [" SERIAL:Release ", "serial:release", "serial:", "backend"]
+      labels: [" SERIAL/Release ", "serial/release", "serial/", "serial:legacy", "backend"]
     }
 
-    assert Orchestrator.serial_groups_for_test(issue) == ["release"]
+    assert Orchestrator.serial_groups_for_test(issue) == ["release", "legacy"]
   end
 
   test "dispatch revalidation skips stale todo issue once a non-terminal blocker appears" do

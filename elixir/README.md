@@ -38,7 +38,7 @@ Symphony stops the active agent for that issue and cleans up matching workspaces
 - Per-ticket thinking/effort switching through Linear labels like `thinking/high` and
   `thinking/max`.
 - Per-ticket OpenCode agent switching through Linear labels like `agent:review`.
-- Per-ticket serial lanes through Linear labels like `serial:release` so related issues do not run
+- Per-ticket serial lanes through Linear grouped labels like `serial/release` so related issues do not run
   concurrently.
 - Repo-local workflow prompts and hooks, with global runtime settings kept in `symphony.yml`.
 - Workspace-local Linear tooling so agents can comment on issues and run GraphQL operations without
@@ -404,7 +404,7 @@ OpenCode agent routing labels:
 
 Serial routing labels:
 
-- `serial:<group>`
+- `serial/<group>`
 
 Routing behavior:
 
@@ -421,11 +421,13 @@ Routing behavior:
 - If multiple `agent:<name>` labels are present on an OpenCode ticket, Symphony logs a warning and
   falls back to `opencode.agent`.
 - `agent:<name>` labels are ignored for Codex and Claude tickets.
-- If a ticket has `serial:<group>`, Symphony only dispatches it when no running issue has the same
+- If a ticket has `serial/<group>`, Symphony only dispatches it when no running issue has the same
   serial group.
-- Tickets with different serial groups may still run in parallel, and tickets without `serial:<group>`
+- Tickets with different serial groups may still run in parallel, and tickets without `serial/<group>`
   keep normal parallel dispatch behavior.
-- Use Linear blockers for strict ordering; `serial:<group>` only prevents overlap.
+- Use Linear blockers for strict ordering; `serial/<group>` only prevents overlap.
+- Linear grouped labels are represented as `parent/child`; create a `serial` label group with child
+  labels such as `release` or `1`. Legacy flat labels like `serial:release` are still accepted.
 
 Selection precedence:
 
@@ -440,7 +442,7 @@ Example:
 - Adding a `codex` label switches just that one ticket to Codex.
 - Adding `thinking/max` keeps the same ticket on its chosen backend but increases reasoning effort.
 - Adding `opencode` and `agent:review` switches that ticket to OpenCode's `review` agent.
-- Adding `serial:release` to multiple tickets ensures only one release ticket runs at a time.
+- Adding `serial/release` to multiple tickets ensures only one release ticket runs at a time.
 
 ## Web dashboard
 
