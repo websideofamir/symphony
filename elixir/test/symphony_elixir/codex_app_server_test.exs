@@ -1,0 +1,981 @@
+defmodule SymphonyElixir.CodexAppServerTest do
+  use SymphonyElixir.TestSupport
+
+  test "codex backend rejects the workspace root and paths outside workspace root" do
+    test_root = temp_root!("cwd-guard")
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      outside_workspace = Path.join(test_root, "outside")
+
+      File.mkdir_p!(workspace_root)
+      File.mkdir_p!(outside_workspace)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        agent_backend: "codex",
+        workspace_root: workspace_root
+      )
+
+      issue = issue_fixture("MT-999", "Validate workspace guard")
+
+      assert {:error, {:invalid_workspace_cwd, :workspace_root, _path}} =
+               AppServer.run(workspace_root, "guard", issue)
+
+      assert {:error, {:invalid_workspace_cwd, :outside_workspace_root, _path, _root}} =
+               AppServer.run(outside_workspace, "guard", issue)
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "codex backend rejects symlink escape cwd paths under the workspace root" do
+    test_root = temp_root!("symlink-cwd-guard")
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      outside_workspace = Path.join(test_root, "outside")
+      symlink_workspace = Path.join(workspace_root, "MT-1000")
+
+      File.mkdir_p!(workspace_root)
+      File.mkdir_p!(outside_workspace)
+      File.ln_s!(outside_workspace, symlink_workspace)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        agent_backend: "codex",
+        workspace_root: workspace_root
+      )
+
+      issue = issue_fixture("MT-1000", "Validate symlink workspace guard")
+
+      assert {:error, {:invalid_workspace_cwd, :symlink_escape, ^symlink_workspace, _root}} =
+               AppServer.run(symlink_workspace, "guard", issue)
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "codex backend passes explicit turn sandbox policies through unchanged" do
+    test_root = temp_root!("supported-turn-policies")
+    trace_env = "SYMP_TEST_CODEX_TRACE_#{System.unique_integer([:positive])}"
+    previous_trace = System.get_env(trace_env)
+
+    on_exit(fn -> restore_env(trace_env, previous_trace) end)
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      workspace = Path.join(workspace_root, "MT-1001")
+      codex_binary = Path.join(test_root, "fake-codex")
+      trace_file = Path.join(test_root, "codex-supported-turn-policies.trace")
+      File.mkdir_p!(workspace)
+      System.put_env(trace_env, trace_file)
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      trace_file="${#{trace_env}:-/tmp/codex-supported-turn-policies.trace}"
+      count=0
+
+      while IFS= read -r line; do
+        count=$((count + 1))
+        printf 'JSON:%s\\n' "$line" >> "$trace_file"
+
+        case "$count" in
+          1)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          2)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-1001"}}}'
+            ;;
+          3)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-1001"}}}'
+            ;;
+          4)
+            printf '%s\\n' '{"method":"turn/completed"}'
+            exit 0
+            ;;
+          *)
+            exit 0
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+
+      issue = issue_fixture("MT-1001", "Validate explicit turn sandbox policy passthrough")
+
+      policy_cases = [
+        %{"type" => "dangerFullAccess"},
+        %{"type" => "externalSandbox", "profile" => "remote-ci"},
+        %{"type" => "workspaceWrite", "writableRoots" => ["relative/path"], "networkAccess" => true},
+        %{"type" => "futureSandbox", "nested" => %{"flag" => true}}
+      ]
+
+      Enum.each(policy_cases, fn configured_policy ->
+        File.rm(trace_file)
+
+        write_workflow_file!(Workflow.workflow_file_path(),
+          agent_backend: "codex",
+          workspace_root: workspace_root,
+          codex_command: "#{codex_binary} app-server",
+          codex_turn_sandbox_policy: configured_policy
+        )
+
+        assert {:ok, _result} = AppServer.run(workspace, "Validate supported turn policy", issue)
+
+        trace = File.read!(trace_file)
+        lines = String.split(trace, "\n", trim: true)
+
+        assert Enum.any?(lines, fn line ->
+                 if String.starts_with?(line, "JSON:") do
+                   line
+                   |> String.trim_leading("JSON:")
+                   |> Jason.decode!()
+                   |> then(fn payload ->
+                     payload["method"] == "turn/start" &&
+                       get_in(payload, ["params", "sandboxPolicy"]) == configured_policy
+                   end)
+                 else
+                   false
+                 end
+               end)
+      end)
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "codex backend appends max effort to the launcher command" do
+    test_root = temp_root!("effort")
+    trace_env = "SYMP_TEST_CODEX_TRACE_#{System.unique_integer([:positive])}"
+    previous_trace = System.get_env(trace_env)
+
+    on_exit(fn -> restore_env(trace_env, previous_trace) end)
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      workspace = Path.join(workspace_root, "MT-1001-EFFORT")
+      codex_binary = Path.join(test_root, "fake-codex")
+      trace_file = Path.join(test_root, "codex-effort.trace")
+      File.mkdir_p!(workspace)
+      System.put_env(trace_env, trace_file)
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      trace_file="${#{trace_env}:-/tmp/codex-effort.trace}"
+      count=0
+
+      printf 'ARGV:%s\\n' "$*" >> "$trace_file"
+
+      if [ -n "${OPENROUTER_API_KEY:-}" ]; then
+        printf 'ENV:OPENROUTER_API_KEY=%s\\n' "$OPENROUTER_API_KEY" >> "$trace_file"
+      fi
+
+      while IFS= read -r line; do
+        count=$((count + 1))
+        printf 'JSON:%s\\n' "$line" >> "$trace_file"
+
+        case "$count" in
+          1)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          2)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-effort"}}}'
+            ;;
+          3)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-effort"}}}'
+            ;;
+          4)
+            printf '%s\\n' '{"method":"turn/completed"}'
+            exit 0
+            ;;
+          *)
+            exit 0
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        agent_backend: "codex",
+        workspace_root: workspace_root,
+        codex_command: "#{codex_binary} app-server",
+        providers_openrouter_api_key: "openrouter-local-token"
+      )
+
+      assert {:ok, _result} =
+               AppServer.run(workspace, "Use maximum effort", issue_fixture("MT-1001-EFFORT", "Maximum effort"), effort: "max")
+
+      trace = File.read!(trace_file)
+      assert trace =~ "ARGV:app-server -c model_reasoning_effort=xhigh"
+      assert trace =~ "ENV:OPENROUTER_API_KEY=openrouter-local-token"
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "codex backend marks request-for-input events as a hard failure" do
+    test_root = temp_root!("input")
+    trace_env = "SYMP_TEST_CODEX_TRACE_#{System.unique_integer([:positive])}"
+    previous_trace = System.get_env(trace_env)
+
+    on_exit(fn -> restore_env(trace_env, previous_trace) end)
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      workspace = Path.join(workspace_root, "MT-88")
+      codex_binary = Path.join(test_root, "fake-codex")
+      trace_file = Path.join(test_root, "codex-input.trace")
+      File.mkdir_p!(workspace)
+      System.put_env(trace_env, trace_file)
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      trace_file="${#{trace_env}:-/tmp/codex-input.trace}"
+      count=0
+
+      while IFS= read -r line; do
+        count=$((count + 1))
+        printf 'JSON:%s\\n' "$line" >> "$trace_file"
+
+        case "$count" in
+          1)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          2)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-88"}}}'
+            ;;
+          3)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-88"}}}'
+            ;;
+          4)
+            printf '%s\\n' '{"method":"turn/input_required","id":"resp-1","params":{"requiresInput":true,"reason":"blocked"}}'
+            ;;
+          *)
+            exit 0
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        agent_backend: "codex",
+        workspace_root: workspace_root,
+        codex_command: "#{codex_binary} app-server"
+      )
+
+      issue = issue_fixture("MT-88", "Input needed")
+
+      assert {:error, {:turn_input_required, payload}} =
+               AppServer.run(workspace, "Needs input", issue)
+
+      assert payload["method"] == "turn/input_required"
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "codex backend auto-approves command execution approval requests when approval policy is never" do
+    test_root = temp_root!("auto-approve")
+    trace_env = "SYMP_TEST_CODEX_TRACE_#{System.unique_integer([:positive])}"
+    previous_trace = System.get_env(trace_env)
+
+    on_exit(fn -> restore_env(trace_env, previous_trace) end)
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      workspace = Path.join(workspace_root, "MT-89")
+      codex_binary = Path.join(test_root, "fake-codex")
+      trace_file = Path.join(test_root, "codex-auto-approve.trace")
+      File.mkdir_p!(workspace)
+      System.put_env(trace_env, trace_file)
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      trace_file="${#{trace_env}:-/tmp/codex-auto-approve.trace}"
+      count=0
+
+      while IFS= read -r line; do
+        count=$((count + 1))
+        printf 'JSON:%s\\n' "$line" >> "$trace_file"
+
+        case "$count" in
+          1)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          2)
+            ;;
+          3)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-89"}}}'
+            ;;
+          4)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-89"}}}'
+            printf '%s\\n' '{"id":99,"method":"item/commandExecution/requestApproval","params":{"command":"gh pr view","cwd":"/tmp","reason":"need approval"}}'
+            ;;
+          5)
+            printf '%s\\n' '{"method":"turn/completed"}'
+            exit 0
+            ;;
+          *)
+            exit 0
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        agent_backend: "codex",
+        workspace_root: workspace_root,
+        codex_command: "#{codex_binary} app-server",
+        codex_approval_policy: "never"
+      )
+
+      issue = issue_fixture("MT-89", "Auto approve request")
+
+      assert {:ok, _result} = AppServer.run(workspace, "Handle approval request", issue)
+
+      trace = File.read!(trace_file)
+      lines = String.split(trace, "\n", trim: true)
+
+      assert Enum.any?(lines, fn line ->
+               if String.starts_with?(line, "JSON:") do
+                 payload =
+                   line
+                   |> String.trim_leading("JSON:")
+                   |> Jason.decode!()
+
+                 payload["id"] == 99 and get_in(payload, ["result", "decision"]) == "acceptForSession"
+               else
+                 false
+               end
+             end)
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "codex backend executes supported dynamic tool calls and returns the tool result" do
+    test_root = temp_root!("supported-tool-call")
+    trace_env = "SYMP_TEST_CODEX_TRACE_#{System.unique_integer([:positive])}"
+    previous_trace = System.get_env(trace_env)
+
+    on_exit(fn -> restore_env(trace_env, previous_trace) end)
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      workspace = Path.join(workspace_root, "MT-90A")
+      codex_binary = Path.join(test_root, "fake-codex")
+      trace_file = Path.join(test_root, "codex-supported-tool-call.trace")
+      File.mkdir_p!(workspace)
+      System.put_env(trace_env, trace_file)
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      trace_file="${#{trace_env}:-/tmp/codex-supported-tool-call.trace}"
+      count=0
+
+      while IFS= read -r line; do
+        count=$((count + 1))
+        printf 'JSON:%s\\n' "$line" >> "$trace_file"
+
+        case "$count" in
+          1)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          2)
+            ;;
+          3)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-90a"}}}'
+            ;;
+          4)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-90a"}}}'
+            printf '%s\\n' '{"id":102,"method":"item/tool/call","params":{"name":"linear_graphql","callId":"call-90a","threadId":"thread-90a","turnId":"turn-90a","arguments":{"query":"query Viewer { viewer { id } }","variables":{"includeTeams":false}}}}'
+            ;;
+          5)
+            printf '%s\\n' '{"method":"turn/completed"}'
+            exit 0
+            ;;
+          *)
+            exit 0
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        agent_backend: "codex",
+        workspace_root: workspace_root,
+        codex_command: "#{codex_binary} app-server"
+      )
+
+      issue = issue_fixture("MT-90A", "Supported tool call")
+      test_pid = self()
+
+      tool_executor = fn tool, arguments ->
+        send(test_pid, {:tool_called, tool, arguments})
+
+        %{
+          "success" => true,
+          "contentItems" => [
+            %{
+              "type" => "inputText",
+              "text" => ~s({"data":{"viewer":{"id":"usr_123"}}})
+            }
+          ]
+        }
+      end
+
+      assert {:ok, _result} =
+               AppServer.run(workspace, "Handle supported tool calls", issue, tool_executor: tool_executor)
+
+      assert_received {:tool_called, "linear_graphql",
+                       %{
+                         "query" => "query Viewer { viewer { id } }",
+                         "variables" => %{"includeTeams" => false}
+                       }}
+
+      trace = File.read!(trace_file)
+      lines = String.split(trace, "\n", trim: true)
+
+      assert Enum.any?(lines, fn line ->
+               if String.starts_with?(line, "JSON:") do
+                 payload =
+                   line
+                   |> String.trim_leading("JSON:")
+                   |> Jason.decode!()
+
+                 payload["id"] == 102 and
+                   get_in(payload, ["result", "success"]) == true and
+                   get_in(payload, ["result", "contentItems", Access.at(0), "text"]) ==
+                     ~s({"data":{"viewer":{"id":"usr_123"}}})
+               else
+                 false
+               end
+             end)
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "codex backend emits ordered local observability trace events for a run" do
+    test_root = temp_root!("trace-jsonl")
+    previous_observability = System.get_env("AGENT_OBSERVABILITY")
+    previous_dev_id = System.get_env("DEV_ID")
+
+    on_exit(fn ->
+      restore_env("AGENT_OBSERVABILITY", previous_observability)
+      restore_env("DEV_ID", previous_dev_id)
+    end)
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      workspace = Path.join(workspace_root, "MT-TRACE")
+      codex_binary = Path.join(test_root, "fake-codex")
+      File.mkdir_p!(workspace)
+
+      System.put_env("AGENT_OBSERVABILITY", "1")
+      System.put_env("DEV_ID", "trace-test")
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      count=0
+
+      while IFS= read -r line; do
+        count=$((count + 1))
+
+        case "$count" in
+          1)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          2)
+            ;;
+          3)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-trace"}}}'
+            ;;
+          4)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-trace"}}}'
+            printf '%s\\n' '{"method":"item/agentMessage/delta","params":{"delta":"hello operator"}}'
+            printf '%s\\n' '{"method":"codex/event/exec_command_begin","params":{"msg":{"command":"git status --short"}}}'
+            printf '%s\\n' '{"id":77,"method":"item/tool/call","params":{"name":"linear_graphql","callId":"call-trace","threadId":"thread-trace","turnId":"turn-trace","arguments":{"query":"query Viewer { viewer { id } }"}}}'
+            ;;
+          5)
+            printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"status":"completed"}}}'
+            exit 0
+            ;;
+          *)
+            exit 0
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        agent_backend: "codex",
+        workspace_root: workspace_root,
+        codex_command: "#{codex_binary} app-server",
+        telemetry_enabled: true,
+        telemetry_otlp_endpoint: "http://localhost:11338",
+        telemetry_log_tool_details: true
+      )
+
+      issue = issue_fixture("MT-TRACE", "Trace JSONL")
+
+      tool_executor = fn _tool, _arguments ->
+        %{"success" => true, "output" => ~s({"ok":true})}
+      end
+
+      stderr =
+        ExUnit.CaptureIO.capture_io(:stderr, fn ->
+          assert {:ok, _result} =
+                   AppServer.run(workspace, "Trace this run", issue,
+                     tool_executor: tool_executor,
+                     turn_number: 1
+                   )
+        end)
+
+      trace_events =
+        stderr
+        |> String.split("\n", trim: true)
+        |> Enum.map(&Jason.decode!/1)
+        |> Enum.filter(&(&1["event"] == "codex_trace"))
+
+      sequences = Enum.map(trace_events, & &1["sequence"])
+      assert sequences == Enum.sort(sequences)
+      assert Enum.all?(trace_events, &(&1["session_id"] == "thread-trace-turn-trace"))
+      assert Enum.all?(trace_events, &(&1["issue_identifier"] == "MT-TRACE"))
+      assert Enum.any?(trace_events, &(&1["trace_kind"] == "session_started"))
+      assert Enum.any?(trace_events, &(&1["trace_kind"] == "assistant_text_delta" and &1["text"] == "hello operator"))
+      assert Enum.any?(trace_events, &(&1["trace_kind"] == "command_started" and &1["command"] == "git status --short"))
+
+      assert Enum.any?(trace_events, fn event ->
+               event["trace_kind"] == "dynamic_tool_completed" and
+                 event["tool_name"] == "linear_graphql" and
+                 get_in(event, ["tool_arguments", "query"]) == "query Viewer { viewer { id } }"
+             end)
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "codex backend launches over ssh for remote workers" do
+    test_root = temp_root!("remote-ssh")
+    previous_path = System.get_env("PATH")
+    previous_trace = System.get_env("SYMP_TEST_SSH_TRACE")
+
+    on_exit(fn ->
+      restore_env("PATH", previous_path)
+      restore_env("SYMP_TEST_SSH_TRACE", previous_trace)
+    end)
+
+    try do
+      trace_file = Path.join(test_root, "ssh.trace")
+      fake_ssh = Path.join(test_root, "ssh")
+      remote_workspace = "/remote/workspaces/MT-REMOTE"
+
+      File.mkdir_p!(test_root)
+      System.put_env("SYMP_TEST_SSH_TRACE", trace_file)
+      System.put_env("PATH", test_root <> ":" <> (previous_path || ""))
+
+      File.write!(fake_ssh, """
+      #!/bin/sh
+      trace_file="${SYMP_TEST_SSH_TRACE:-/tmp/symphony-fake-ssh.trace}"
+      count=0
+      printf 'ARGV:%s\\n' "$*" >> "$trace_file"
+
+      while IFS= read -r line; do
+        count=$((count + 1))
+        printf 'JSON:%s\\n' "$line" >> "$trace_file"
+
+        case "$count" in
+          1)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          2)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-remote"}}}'
+            ;;
+          3)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-remote"}}}'
+            ;;
+          4)
+            printf '%s\\n' '{"method":"turn/completed"}'
+            exit 0
+            ;;
+          *)
+            exit 0
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(fake_ssh, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        agent_backend: "codex",
+        workspace_root: "/remote/workspaces",
+        codex_command: "fake-remote-codex app-server",
+        providers_openrouter_api_key: "openrouter-remote-token"
+      )
+
+      issue = issue_fixture("MT-REMOTE", "Run remote app server")
+
+      assert {:ok, _result} =
+               AppServer.run(
+                 remote_workspace,
+                 "Run remote worker",
+                 issue,
+                 worker_host: "worker-01:2200"
+               )
+
+      trace = File.read!(trace_file)
+      lines = String.split(trace, "\n", trim: true)
+
+      assert argv_line = Enum.find(lines, &String.starts_with?(&1, "ARGV:"))
+      assert argv_line =~ "-T -p 2200 worker-01 bash -lc"
+      assert argv_line =~ "cd "
+      assert argv_line =~ remote_workspace
+      assert argv_line =~ "exec "
+      assert argv_line =~ "fake-remote-codex app-server"
+      assert argv_line =~ "OPENROUTER_API_KEY"
+      assert argv_line =~ "openrouter-remote-token"
+
+      expected_turn_policy = %{
+        "type" => "workspaceWrite",
+        "writableRoots" => [remote_workspace],
+        "readOnlyAccess" => %{"type" => "fullAccess"},
+        "networkAccess" => false,
+        "excludeTmpdirEnvVar" => false,
+        "excludeSlashTmp" => false
+      }
+
+      assert Enum.any?(lines, fn line ->
+               if String.starts_with?(line, "JSON:") do
+                 line
+                 |> String.trim_leading("JSON:")
+                 |> Jason.decode!()
+                 |> then(fn payload ->
+                   payload["method"] == "thread/start" &&
+                     get_in(payload, ["params", "cwd"]) == remote_workspace
+                 end)
+               else
+                 false
+               end
+             end)
+
+      assert Enum.any?(lines, fn line ->
+               if String.starts_with?(line, "JSON:") do
+                 line
+                 |> String.trim_leading("JSON:")
+                 |> Jason.decode!()
+                 |> then(fn payload ->
+                   payload["method"] == "turn/start" &&
+                     get_in(payload, ["params", "cwd"]) == remote_workspace &&
+                     get_in(payload, ["params", "sandboxPolicy"]) == expected_turn_policy
+                 end)
+               else
+                 false
+               end
+             end)
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "codex backend passes otel config overrides and injects telemetry env vars when telemetry is enabled" do
+    test_root = temp_root!("telemetry")
+    trace_env = "SYMP_TEST_CODEX_TRACE_#{System.unique_integer([:positive])}"
+    previous_trace = System.get_env(trace_env)
+
+    on_exit(fn -> restore_env(trace_env, previous_trace) end)
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      workspace = Path.join(workspace_root, "MT-1001-TEL")
+      codex_binary = Path.join(test_root, "fake-codex")
+      trace_file = Path.join(test_root, "codex-telemetry.trace")
+      File.mkdir_p!(workspace)
+      System.put_env(trace_env, trace_file)
+      write_fake_codex_telemetry_launcher!(codex_binary, trace_env)
+
+      issue = issue_fixture("MT-1001-TEL", "Telemetry test")
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        agent_backend: "codex",
+        workspace_root: workspace_root,
+        codex_command: "#{codex_binary} app-server",
+        telemetry_enabled: true,
+        telemetry_otlp_endpoint: "http://localhost:11338",
+        telemetry_otlp_protocol: "grpc",
+        telemetry_include_traces: true,
+        telemetry_include_metrics: true,
+        telemetry_include_logs: true,
+        telemetry_resource_attributes: %{"environment" => "test"},
+        accounts_store_root: Path.join(test_root, "accounts"),
+        instance_name: "test-instance"
+      )
+
+      assert {:ok, account} =
+               SymphonyElixir.Accounts.create_or_update(
+                 "codex",
+                 "primary",
+                 [email: "primary@example.com"],
+                 Config.settings!()
+               )
+
+      assert {:ok, _result} = AppServer.run(workspace, "Telemetry test", issue, account: account)
+
+      codex_config_path = Path.join(workspace, ".codex/config.toml")
+      refute File.exists?(codex_config_path)
+
+      trace = File.read!(trace_file)
+      assert trace =~ ~s(ARGV:app-server)
+      assert trace =~ ~s(-c otel.environment="symphony-MT-1001-TEL")
+      assert trace =~ ~s(-c otel.exporter={ otlp-grpc = { endpoint = "http://localhost:11338" } })
+      assert trace =~ ~s(-c otel.trace_exporter={ otlp-grpc = { endpoint = "http://localhost:11338" } })
+      assert trace =~ ~s(-c otel.metrics_exporter={ otlp-grpc = { endpoint = "http://localhost:11338" } })
+      assert trace =~ ~s(-c analytics_enabled=true)
+      assert trace =~ ~s(-c otel.log_user_prompt=false)
+      assert trace =~ ~s(-c otel.log_tool_details=false)
+      assert trace =~ "ENV:OTEL_RESOURCE_ATTRIBUTES="
+      assert trace =~ "linear.issue.id=issue-MT-1001-TEL"
+      assert trace =~ "linear.issue.identifier=MT-1001-TEL"
+      assert trace =~ "symphony.backend=codex"
+      assert trace =~ "symphony.instance=test-instance"
+      assert trace =~ "symphony.account.id=primary"
+      assert trace =~ "symphony.account.email=primary%40example.com"
+      assert trace =~ "symphony.account.backend=codex"
+      assert trace =~ "symphony.account.state=unknown"
+      assert trace =~ "symphony.account.credential_kind=codex_home"
+      assert trace =~ "environment=test"
+      assert trace =~ "ENV:CODEX_HOME=#{account.codex_home}"
+      assert trace =~ "ENV:OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:11338"
+      assert trace =~ "ENV:OTEL_EXPORTER_OTLP_PROTOCOL=grpc"
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "codex backend preserves a user-authored .codex/config.toml" do
+    test_root = temp_root!("telemetry-preserve")
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      workspace = Path.join(workspace_root, "MT-PRESERVE")
+      File.mkdir_p!(Path.join(workspace, ".codex"))
+
+      user_config_path = Path.join(workspace, ".codex/config.toml")
+      user_config = ~s([some_user]\nkey = "value"\n)
+      File.write!(user_config_path, user_config)
+
+      codex_binary = Path.join(test_root, "fake-codex")
+      trace_env = "SYMP_TEST_CODEX_TRACE_#{System.unique_integer([:positive])}"
+      previous_trace = System.get_env(trace_env)
+
+      on_exit(fn -> restore_env(trace_env, previous_trace) end)
+
+      System.put_env(trace_env, Path.join(test_root, "codex-preserve.trace"))
+      write_fake_codex_telemetry_launcher!(codex_binary, trace_env)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        agent_backend: "codex",
+        workspace_root: workspace_root,
+        codex_command: "#{codex_binary} app-server",
+        telemetry_enabled: true,
+        telemetry_otlp_endpoint: "http://localhost:11338",
+        telemetry_otlp_protocol: "grpc"
+      )
+
+      assert {:ok, _result} =
+               AppServer.run(workspace, "Preserve test", issue_fixture("MT-PRESERVE", "Preserve"))
+
+      assert File.read!(user_config_path) == user_config
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "codex backend escapes TOML override special characters in identifier and endpoint" do
+    test_root = temp_root!("telemetry-escape")
+    trace_env = "SYMP_TEST_CODEX_TRACE_#{System.unique_integer([:positive])}"
+    previous_trace = System.get_env(trace_env)
+
+    on_exit(fn -> restore_env(trace_env, previous_trace) end)
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      workspace = Path.join(workspace_root, "MT-ESC")
+      File.mkdir_p!(workspace)
+
+      codex_binary = Path.join(test_root, "fake-codex")
+      trace_file = Path.join(test_root, "codex-escape.trace")
+      System.put_env(trace_env, trace_file)
+      write_fake_codex_telemetry_launcher!(codex_binary, trace_env)
+
+      issue = %Issue{
+        id: "issue-mt-esc",
+        identifier: ~s(MT-"E\\SC),
+        title: "Escape",
+        description: "",
+        state: "open",
+        url: "",
+        labels: []
+      }
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        agent_backend: "codex",
+        workspace_root: workspace_root,
+        codex_command: "#{codex_binary} app-server",
+        telemetry_enabled: true,
+        telemetry_otlp_endpoint: ~s(http://"evil"/path),
+        telemetry_otlp_protocol: "grpc"
+      )
+
+      assert {:ok, _result} = AppServer.run(workspace, "Escape", issue)
+
+      trace = File.read!(trace_file)
+      assert trace =~ ~s(otel.environment="symphony-MT-\\"E\\\\SC")
+      assert trace =~ ~s(endpoint = "http://\\"evil\\"/path")
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "codex backend http/json protocol emits json encoding in otel override" do
+    test_root = temp_root!("telemetry-json")
+    trace_env = "SYMP_TEST_CODEX_TRACE_#{System.unique_integer([:positive])}"
+    previous_trace = System.get_env(trace_env)
+
+    on_exit(fn -> restore_env(trace_env, previous_trace) end)
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      workspace = Path.join(workspace_root, "MT-JSON")
+      File.mkdir_p!(workspace)
+
+      codex_binary = Path.join(test_root, "fake-codex")
+      trace_file = Path.join(test_root, "codex-json.trace")
+      System.put_env(trace_env, trace_file)
+      write_fake_codex_telemetry_launcher!(codex_binary, trace_env)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        agent_backend: "codex",
+        workspace_root: workspace_root,
+        codex_command: "#{codex_binary} app-server",
+        telemetry_enabled: true,
+        telemetry_otlp_endpoint: "http://localhost:4318",
+        telemetry_otlp_protocol: "http/json"
+      )
+
+      assert {:ok, _result} =
+               AppServer.run(workspace, "Json encoding", issue_fixture("MT-JSON", "Json"))
+
+      trace = File.read!(trace_file)
+      assert trace =~ ~s(otel.exporter={ otlp-http = { endpoint = "http://localhost:4318", protocol = "json" } })
+      assert trace =~ ~s(otel.trace_exporter={ otlp-http = { endpoint = "http://localhost:4318", protocol = "json" } })
+      assert trace =~ ~s(otel.metrics_exporter={ otlp-http = { endpoint = "http://localhost:4318", protocol = "json" } })
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "codex backend prefers metrics-specific telemetry endpoint for otel override" do
+    test_root = temp_root!("telemetry-metrics")
+    trace_env = "SYMP_TEST_CODEX_TRACE_#{System.unique_integer([:positive])}"
+    previous_trace = System.get_env(trace_env)
+
+    on_exit(fn -> restore_env(trace_env, previous_trace) end)
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      workspace = Path.join(workspace_root, "MT-METRICS")
+      codex_binary = Path.join(test_root, "fake-codex")
+      trace_file = Path.join(test_root, "codex-metrics.trace")
+      File.mkdir_p!(workspace)
+      System.put_env(trace_env, trace_file)
+      write_fake_codex_telemetry_launcher!(codex_binary, trace_env)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        agent_backend: "codex",
+        workspace_root: workspace_root,
+        codex_command: "#{codex_binary} app-server",
+        telemetry_enabled: true,
+        telemetry_otlp_endpoint: "http://generic.example:4317",
+        telemetry_otlp_protocol: "grpc",
+        telemetry_otlp_metrics_endpoint: "http://metrics.example:4318/v1/metrics",
+        telemetry_otlp_metrics_protocol: "http/json",
+        telemetry_include_metrics: true,
+        telemetry_log_user_prompts: true,
+        telemetry_log_tool_details: true
+      )
+
+      assert {:ok, _result} =
+               AppServer.run(workspace, "Metrics endpoint", issue_fixture("MT-METRICS", "Metrics"))
+
+      trace = File.read!(trace_file)
+      assert trace =~ ~s(otel.exporter={ otlp-http = { endpoint = "http://metrics.example:4318/v1/metrics", protocol = "json" } })
+      assert trace =~ ~s(otel.trace_exporter={ otlp-http = { endpoint = "http://metrics.example:4318/v1/metrics", protocol = "json" } })
+      assert trace =~ ~s(otel.metrics_exporter={ otlp-http = { endpoint = "http://metrics.example:4318/v1/metrics", protocol = "json" } })
+      assert trace =~ ~s(-c otel.log_user_prompt=true)
+      assert trace =~ ~s(-c otel.log_tool_details=true)
+      refute trace =~ ~s(endpoint = "http://generic.example:4317")
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
+  defp issue_fixture(identifier, title) do
+    %Issue{
+      id: "issue-#{identifier}",
+      identifier: identifier,
+      title: title,
+      description: "Test issue for #{identifier}",
+      state: "In Progress",
+      url: "https://example.org/issues/#{identifier}",
+      labels: ["backend"]
+    }
+  end
+
+  defp temp_root!(suffix) do
+    Path.join(
+      System.tmp_dir!(),
+      "symphony-elixir-codex-app-server-#{suffix}-#{System.unique_integer([:positive])}"
+    )
+  end
+
+  defp write_fake_codex_telemetry_launcher!(codex_binary, trace_env) do
+    File.write!(codex_binary, """
+    #!/bin/sh
+    trace_file="${#{trace_env}:-/tmp/codex-telemetry.trace}"
+    count=0
+
+    printf 'ARGV:%s\\n' "$*" >> "$trace_file"
+
+    env | grep -E '^(CODEX_HOME=|OTEL_)' | while IFS= read -r line; do
+      printf 'ENV:%s\\n' "$line" >> "$trace_file"
+    done
+
+    while IFS= read -r line; do
+      count=$((count + 1))
+      printf 'JSON:%s\\n' "$line" >> "$trace_file"
+
+      case "$count" in
+        1) printf '%s\\n' '{"id":1,"result":{}}' ;;
+        2) printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-tel"}}}' ;;
+        3) printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-tel"}}}' ;;
+        4) printf '%s\\n' '{"method":"turn/completed"}'; exit 0 ;;
+        *) exit 0 ;;
+      esac
+    done
+    """)
+
+    File.chmod!(codex_binary, 0o755)
+  end
+end
