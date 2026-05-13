@@ -678,6 +678,11 @@ This section is intentionally redundant so a coding agent can implement the conf
 - `codex.turn_timeout_ms`: integer, default `3600000`
 - `codex.read_timeout_ms`: integer, default `5000`
 - `codex.stall_timeout_ms`: integer, default `300000`
+- `opencode.turn_timeout_ms`: integer, default `3600000`; bounds the synchronous
+  `POST /session/:id/message` turn request
+- `opencode.read_timeout_ms`: integer, default `5000`; applies to short OpenCode control requests
+  such as startup, healthchecks, and session creation
+- `opencode.stall_timeout_ms`: integer, default `300000`
 - `server.port` (extension): integer, optional; enables the optional HTTP server, `0` may be used
   for ephemeral local bind, and CLI `--port` overrides it
 
@@ -1220,6 +1225,11 @@ Timeouts:
 - `codex.read_timeout_ms`: request/response timeout during startup and sync requests
 - `codex.turn_timeout_ms`: total turn stream timeout
 - `codex.stall_timeout_ms`: enforced by orchestrator based on event inactivity
+- `opencode.read_timeout_ms`: request/response timeout during startup, healthchecks, session
+  creation, and other short control requests
+- `opencode.turn_timeout_ms`: total OpenCode turn timeout, including the synchronous
+  `POST /session/:id/message` response window
+- `opencode.stall_timeout_ms`: inactivity timeout while waiting for OpenCode turn events
 
 Error mapping (recommended normalized categories):
 

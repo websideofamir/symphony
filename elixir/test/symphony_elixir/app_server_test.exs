@@ -245,18 +245,8 @@ defmodule SymphonyElixir.AppServerTest do
           Process.sleep(1_000)
           json(conn, 200, %{"info" => %{"id" => "assistant-message-5", "sessionID" => session_id}})
 
-        :message_post_timeout ->
-          Enum.each(1..10, fn step ->
-            FakeOpenCodeState.broadcast(state, "message.part.delta", %{
-              "part" => %{
-                "sessionID" => session_id,
-                "type" => "text",
-                "text" => "Still working #{step}"
-              }
-            })
-
-            Process.sleep(100)
-          end)
+        :slow_message_post ->
+          Process.sleep(1_000)
 
           json(conn, 200, %{"info" => %{"id" => "assistant-message-6", "sessionID" => session_id}})
       end
@@ -655,7 +645,41 @@ defmodule SymphonyElixir.AppServerTest do
     end
   end
 
-  test "app server returns actionable timeout details when posting a turn message times out" do
+  test "app server waits for synchronous OpenCode messages longer than read_timeout_ms" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-opencode-message-read-wait-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      workspace = Path.join(workspace_root, "MT-105")
+      File.mkdir_p!(workspace)
+
+      server = start_fake_opencode_server!(:slow_message_post)
+      launcher = write_launcher_script!(test_root, server.base_url)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        opencode_command: launcher,
+        opencode_read_timeout_ms: 500,
+        opencode_turn_timeout_ms: 2_000,
+        opencode_stall_timeout_ms: 5_000
+      )
+
+      issue = issue_fixture("issue-message-wait", "MT-105", "Message wait")
+
+      assert {:ok, %{session_id: "session-test", turn_id: "assistant-message-6"}} =
+               AppServer.run(workspace, "Wait longer than read timeout", issue)
+
+      assert_receive {:fake_opencode_request, {:message_post, "session-test", _body}}, 1_000
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "app server returns actionable timeout details when synchronous OpenCode message exceeds turn_timeout_ms" do
     test_root =
       Path.join(
         System.tmp_dir!(),
@@ -667,14 +691,15 @@ defmodule SymphonyElixir.AppServerTest do
       workspace = Path.join(workspace_root, "MT-105")
       File.mkdir_p!(workspace)
 
-      server = start_fake_opencode_server!(:message_post_timeout)
+      server = start_fake_opencode_server!(:slow_message_post)
       launcher = write_launcher_script!(test_root, server.base_url)
       parent = self()
 
       write_workflow_file!(Workflow.workflow_file_path(),
         workspace_root: workspace_root,
         opencode_command: launcher,
-        opencode_read_timeout_ms: 500,
+        opencode_read_timeout_ms: 2_000,
+        opencode_turn_timeout_ms: 300,
         opencode_stall_timeout_ms: 5_000
       )
 
@@ -683,7 +708,7 @@ defmodule SymphonyElixir.AppServerTest do
                 kind: :message_post_timeout,
                 phase: :post_turn_message,
                 session_id: "session-test",
-                read_timeout_ms: 500,
+                turn_timeout_ms: 300,
                 method: "POST",
                 path: "/session/session-test/message",
                 message: message,
@@ -696,15 +721,15 @@ defmodule SymphonyElixir.AppServerTest do
                  on_message: &send(parent, {:agent_message, &1})
                )
 
-      assert message =~ "OpenCode did not respond to POST /session/session-test/message"
-      assert hint =~ "Increase opencode.read_timeout_ms"
+      assert message =~
+               "OpenCode did not respond to POST /session/session-test/message before turn_timeout_ms elapsed"
+      assert hint =~ "Increase opencode.turn_timeout_ms"
 
-      assert_receive {:fake_opencode_request, {:message_post, "session-test", _body}}, 1_000
-      assert_receive {:agent_message, %{event: :turn_started, session_id: "session-test"}}, 1_000
-      assert_receive {:agent_message, %{event: "message.part.delta"}}, 1_000
-
-      assert_receive {:agent_message, %{event: :turn_ended_with_error, reason: %{kind: :message_post_timeout, message: ^message}}},
-                     1_000
+      assert_receive {:agent_message,
+                      %{
+                        event: :turn_ended_with_error,
+                        reason: %{kind: :message_post_timeout, message: ^message}
+                      }}, 1_000
     after
       File.rm_rf(test_root)
     end

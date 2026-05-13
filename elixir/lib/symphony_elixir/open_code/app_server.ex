@@ -424,7 +424,9 @@ defmodule SymphonyElixir.OpenCode.AppServer do
 
     case Req.post(session.request,
            url: path,
-           json: payload
+           json: payload,
+           receive_timeout: session.turn_timeout_ms,
+           connect_options: [timeout: session.read_timeout_ms]
          ) do
       {:ok, %{status: status, body: body}} when status in 200..299 and is_map(body) ->
         {:ok, body}
@@ -633,12 +635,20 @@ defmodule SymphonyElixir.OpenCode.AppServer do
     :ok
   end
 
+  defp stream_receive_timeout_ms(session) do
+    [session.read_timeout_ms, session.turn_timeout_ms, session.stall_timeout_ms]
+    |> Enum.filter(&(is_integer(&1) and &1 > 0))
+    |> Enum.max(fn -> session.read_timeout_ms end)
+  end
+
   defp stream_session_events(session, turn_ref, owner, on_message) do
     response =
       Req.get!(session.request,
         url: "/global/event",
         decode_body: false,
         into: :self,
+        receive_timeout: stream_receive_timeout_ms(session),
+        connect_options: [timeout: session.read_timeout_ms],
         headers: %{"accept" => "text/event-stream"}
       )
 
@@ -1057,15 +1067,17 @@ defmodule SymphonyElixir.OpenCode.AppServer do
     transport_reason = req_transport_reason(reason)
 
     if transport_reason == :timeout do
+      timeout_label = request_timeout_label(phase)
+
       opencode_error(
         request_timeout_kind(phase),
         phase,
-        "OpenCode did not respond to #{method} #{path} before read_timeout_ms elapsed",
+        "OpenCode did not respond to #{method} #{path} before #{timeout_label} elapsed",
         Map.merge(context, %{
           method: method,
           path: path,
           transport_reason: transport_reason,
-          hint: "Increase opencode.read_timeout_ms or verify the provider/model can answer within that window."
+          hint: request_timeout_hint(phase)
         })
       )
     else
@@ -1149,13 +1161,13 @@ defmodule SymphonyElixir.OpenCode.AppServer do
       opencode_error(
         :event_stream_timeout,
         :event_stream,
-        "OpenCode event stream did not deliver data before read_timeout_ms elapsed",
+        "OpenCode event stream did not deliver data before turn_timeout_ms elapsed",
         Map.merge(session_context(session), %{
           method: "GET",
           path: "/global/event",
           transport_reason: transport_reason,
           cause: preview_value(reason),
-          hint: "Increase opencode.read_timeout_ms or verify the model starts streaming within that window."
+          hint: "Increase opencode.turn_timeout_ms or verify the model can finish within that window."
         })
       )
     else
@@ -1177,6 +1189,15 @@ defmodule SymphonyElixir.OpenCode.AppServer do
   defp request_timeout_kind(:create_session), do: :session_create_timeout
   defp request_timeout_kind(:post_turn_message), do: :message_post_timeout
   defp request_timeout_kind(other), do: :"#{other}_timeout"
+
+  defp request_timeout_label(:post_turn_message), do: "turn_timeout_ms"
+  defp request_timeout_label(_phase), do: "read_timeout_ms"
+
+  defp request_timeout_hint(:post_turn_message),
+    do: "Increase opencode.turn_timeout_ms or verify the provider/model can finish the turn within that window."
+
+  defp request_timeout_hint(_phase),
+    do: "Increase opencode.read_timeout_ms or verify OpenCode can answer short control requests within that window."
 
   defp request_http_error_kind(:create_session), do: :session_create_http_error
   defp request_http_error_kind(:post_turn_message), do: :message_post_http_error

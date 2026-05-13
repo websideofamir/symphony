@@ -225,6 +225,9 @@ Notes:
 - `agent:<name>` Linear labels override `opencode.agent` for a single OpenCode ticket. For example,
   `agent:review` sends the ticket to OpenCode's `review` agent.
 - `opencode.model` is optional and must use `provider/model` format when set.
+- `opencode.read_timeout_ms` applies to short control requests such as startup, healthchecks, and
+  session creation. The synchronous `POST /session/:id/message` call can legitimately run for the
+  full agent turn, so Symphony bounds it with `opencode.turn_timeout_ms` instead.
 - `claude.command` defaults to `claude`.
 - `claude.model` is optional.
 - `claude.permission_mode` defaults to `bypassPermissions`.
