@@ -1275,7 +1275,7 @@ defmodule SymphonyElixir.CoreTest do
         opencode_agent: "build"
       )
 
-      issue = %{issue_fixture("issue-agent-label", "MT-AGENT-1", "Route OpenCode agent") | labels: ["agent:review"]}
+      issue = %{issue_fixture("issue-agent-label", "MT-AGENT-1", "Route OpenCode agent") | labels: ["agent/review"]}
 
       assert :ok =
                AgentRunner.run(

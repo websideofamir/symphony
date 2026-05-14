@@ -544,6 +544,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
         "nodes" => [
           %{"name" => "Claude"},
           %{"name" => "Low", "parent" => %{"name" => "Thinking"}},
+          %{"name" => "Review", "parent" => %{"name" => "Agent"}},
           %{"name" => "1", "parent" => %{"name" => "Serial"}}
         ]
       },
@@ -554,7 +555,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
     issue = Client.normalize_issue_for_test(raw_issue, "user-1")
 
-    assert issue.labels == ["claude", "thinking/low", "serial/1"]
+    assert issue.labels == ["claude", "thinking/low", "agent/review", "serial/1"]
     assert SymphonyElixir.AgentRoute.resolve(issue).backend == "claude"
     assert SymphonyElixir.AgentRoute.resolve(issue).effort == "low"
   end

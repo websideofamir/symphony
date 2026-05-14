@@ -37,7 +37,7 @@ Symphony stops the active agent for that issue and cleans up matching workspaces
 - Per-ticket backend switching through Linear labels like `codex`, `claude`, and `opencode`.
 - Per-ticket thinking/effort switching through Linear labels like `thinking/high` and
   `thinking/max`.
-- Per-ticket OpenCode agent switching through Linear labels like `agent:review`.
+- Per-ticket OpenCode agent switching through Linear grouped labels like `agent/review`.
 - Per-ticket serial lanes through Linear grouped labels like `serial/release` so related issues do not run
   concurrently.
 - Repo-local workflow prompts and hooks, with global runtime settings kept in `symphony.yml`.
@@ -222,8 +222,9 @@ Notes:
   own default reasoning level.
 - `opencode.command` defaults to `opencode serve --hostname 127.0.0.1 --port 0`.
 - `opencode.agent` defaults to `build`.
-- `agent:<name>` Linear labels override `opencode.agent` for a single OpenCode ticket. For example,
-  `agent:review` sends the ticket to OpenCode's `review` agent.
+- `agent/<name>` Linear labels override `opencode.agent` for a single OpenCode ticket. For example,
+  `agent/review` sends the ticket to OpenCode's `review` agent. Legacy flat labels like
+  `agent:review` are still accepted.
 - `opencode.model` is optional and must use `provider/model` format when set.
 - `opencode.read_timeout_ms` applies to short control requests such as startup, healthchecks, and
   session creation. The synchronous `POST /session/:id/message` call can legitimately run for the
@@ -400,7 +401,7 @@ Built-in thinking routing labels:
 
 OpenCode agent routing labels:
 
-- `agent:<name>`
+- `agent/<name>`
 
 Serial routing labels:
 
@@ -416,11 +417,14 @@ Routing behavior:
 - If multiple thinking labels are present, Symphony logs a warning and falls back to
   `agent.default_effort` when set.
 - Legacy `effort/*` labels are still accepted for compatibility.
-- If the ticket uses the OpenCode backend and exactly one `agent:<name>` label is present, Symphony
+- If the ticket uses the OpenCode backend and exactly one `agent/<name>` label is present, Symphony
   uses `<name>` instead of `opencode.agent` for that ticket.
-- If multiple `agent:<name>` labels are present on an OpenCode ticket, Symphony logs a warning and
+- If multiple `agent/<name>` labels are present on an OpenCode ticket, Symphony logs a warning and
   falls back to `opencode.agent`.
-- `agent:<name>` labels are ignored for Codex and Claude tickets.
+- `agent/<name>` labels are ignored for Codex and Claude tickets.
+- Linear grouped labels are represented as `parent/child`; create an `agent` label group with child
+  labels such as `review` or `test-primary-2`. Legacy flat labels like `agent:review` are still
+  accepted.
 - If a ticket has `serial/<group>`, Symphony only dispatches it when no running issue has the same
   serial group.
 - Tickets with different serial groups may still run in parallel, and tickets without `serial/<group>`
@@ -441,7 +445,7 @@ Example:
 - A `project-b` issue can default to Claude Code because `projects[].backend` is `claude`.
 - Adding a `codex` label switches just that one ticket to Codex.
 - Adding `thinking/max` keeps the same ticket on its chosen backend but increases reasoning effort.
-- Adding `opencode` and `agent:review` switches that ticket to OpenCode's `review` agent.
+- Adding `opencode` and `agent/review` switches that ticket to OpenCode's `review` agent.
 - Adding `serial/release` to multiple tickets ensures only one release ticket runs at a time.
 
 ## Web dashboard

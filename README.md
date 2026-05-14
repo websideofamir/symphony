@@ -20,7 +20,7 @@ The experimental Elixir implementation currently supports:
 - Linear label-based backend switching with labels like `codex`, `claude`, and `opencode`.
 - Linear label-based thinking/effort switching with labels like `thinking/high` and
   `thinking/max`.
-- Linear label-based OpenCode agent switching with labels like `agent:review`.
+- Linear label-based OpenCode agent switching with Linear grouped labels like `agent/review`.
 - Linear label-based serial lanes with Linear grouped labels like `serial/release`.
 
 If you want to try those features, start with [elixir/README.md](elixir/README.md), which now

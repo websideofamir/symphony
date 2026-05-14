@@ -35,10 +35,10 @@ defmodule SymphonyElixir.AgentRouteTest do
     assert AgentRoute.resolve(issue_fixture(["THINKING/MAX"])).effort == "max"
   end
 
-  test "agent labels select the OpenCode agent" do
+  test "grouped agent labels select the OpenCode agent" do
     write_workflow_file!(Workflow.workflow_file_path(), agent_backend: "opencode")
 
-    route = AgentRoute.resolve(issue_fixture(["agent:review"]))
+    route = AgentRoute.resolve(issue_fixture(["agent/review"]))
 
     assert route.backend == "opencode"
     assert route.opencode_agent == "review"
@@ -48,7 +48,17 @@ defmodule SymphonyElixir.AgentRouteTest do
   test "agent labels are case-insensitive and ignore blank agent names" do
     write_workflow_file!(Workflow.workflow_file_path(), agent_backend: "opencode")
 
-    route = AgentRoute.resolve(issue_fixture(["AGENT:Review", "agent:"]))
+    route = AgentRoute.resolve(issue_fixture(["AGENT/Review", "agent/", "agent:"]))
+
+    assert route.backend == "opencode"
+    assert route.opencode_agent == "review"
+    assert route.warnings == []
+  end
+
+  test "legacy colon agent labels still select the OpenCode agent" do
+    write_workflow_file!(Workflow.workflow_file_path(), agent_backend: "opencode")
+
+    route = AgentRoute.resolve(issue_fixture(["agent:review"]))
 
     assert route.backend == "opencode"
     assert route.opencode_agent == "review"
@@ -58,7 +68,7 @@ defmodule SymphonyElixir.AgentRouteTest do
   test "agent labels are ignored for non-OpenCode backends" do
     write_workflow_file!(Workflow.workflow_file_path(), agent_backend: "codex")
 
-    route = AgentRoute.resolve(issue_fixture(["agent:review"]))
+    route = AgentRoute.resolve(issue_fixture(["agent/review"]))
 
     assert route.backend == "codex"
     assert route.opencode_agent == nil
@@ -68,7 +78,7 @@ defmodule SymphonyElixir.AgentRouteTest do
   test "conflicting agent labels warn and fall back to configured OpenCode agent" do
     write_workflow_file!(Workflow.workflow_file_path(), agent_backend: "opencode")
 
-    route = AgentRoute.resolve(issue_fixture(["agent:review", "agent:build"]))
+    route = AgentRoute.resolve(issue_fixture(["agent/review", "agent:build"]))
 
     assert route.backend == "opencode"
     assert route.opencode_agent == nil

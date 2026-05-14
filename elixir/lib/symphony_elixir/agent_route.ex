@@ -34,6 +34,7 @@ defmodule SymphonyElixir.AgentRoute do
 
   @effort_values ["low", "medium", "high", "xhigh", "max"]
   @agent_label_prefix "agent:"
+  @agent_grouped_label_prefix "agent/"
 
   defstruct [:backend, :effort, :opencode_agent, warnings: []]
 
@@ -177,16 +178,27 @@ defmodule SymphonyElixir.AgentRoute do
   defp normalize_label(_value), do: nil
 
   defp agent_label_value(label) when is_binary(label) do
-    if String.starts_with?(label, @agent_label_prefix) do
-      label
-      |> String.replace_prefix(@agent_label_prefix, "")
-      |> String.trim()
-      |> case do
-        "" -> nil
-        agent -> agent
-      end
+    cond do
+      String.starts_with?(label, @agent_grouped_label_prefix) ->
+        agent_label_name(label, @agent_grouped_label_prefix)
+
+      String.starts_with?(label, @agent_label_prefix) ->
+        agent_label_name(label, @agent_label_prefix)
+
+      true ->
+        nil
     end
   end
 
   defp agent_label_value(_label), do: nil
+
+  defp agent_label_name(label, prefix) do
+    label
+    |> String.replace_prefix(prefix, "")
+    |> String.trim()
+    |> case do
+      "" -> nil
+      agent -> agent
+    end
+  end
 end
