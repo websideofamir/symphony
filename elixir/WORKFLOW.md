@@ -83,7 +83,7 @@ The agent should be able to talk to Linear, either via a configured Linear MCP s
 - `commit`: produce clean, logical commits during implementation.
 - `push`: keep remote branch current and publish updates.
 - `pull`: keep branch updated with latest `origin/main` before handoff.
-- `land`: when ticket reaches `Merging`, explicitly open and follow `.codex/skills/land/SKILL.md`, which includes the `land` loop.
+- `land`: when ticket reaches `Merging`, explicitly open and follow `land` skill, which includes the `land` loop.
 
 ## Status map
 
@@ -108,7 +108,7 @@ The agent should be able to talk to Linear, either via a configured Linear MCP s
     - `In Progress` -> continue execution flow from current scratchpad comment.
     - `Human Review` -> wait and poll for decision/review updates.
     - `Address Feedback` -> run address-feedback flow.
-    - `Merging` -> on entry, open and follow `.codex/skills/land/SKILL.md`; do not call `gh pr merge` directly.
+    - `Merging` -> on entry, open and follow `skills/land/SKILL.md`; do not call `gh pr merge` directly.
     - `Rework` -> run rework flow.
     - `Done` -> do nothing and shut down.
 4. Check whether a PR already exists for the current branch and whether it is closed.
@@ -265,11 +265,11 @@ Use this only when completion is blocked by missing required tools or missing au
 1. Treat `Rework` as a full approach reset, not incremental patching.
 2. Re-read the full issue body and all human comments; explicitly identify what will be done differently this attempt.
 3. Close the existing PR tied to the issue.
-4. Remove the existing `## Codex Workpad` comment from the issue.
+4. Remove the existing `## Symphony Workpad` comment from the issue.
 5. Create a fresh branch from `origin/main`.
 6. Start over from the normal kickoff flow:
    - If current issue state is `Todo`, move it to `In Progress`; otherwise keep the current state.
-   - Create a new bootstrap `## Codex Workpad` comment.
+   - Create a new bootstrap `## Symphony Workpad` comment.
    - Build a fresh plan/checklist and execute end-to-end.
 
 ## Completion bar before Human Review
@@ -288,7 +288,7 @@ Use this only when completion is blocked by missing required tools or missing au
 - For closed/merged branch PRs, create a new branch from `origin/main` and restart from reproduction/planning as if starting fresh.
 - If issue state is `Backlog`, do not modify it; wait for human to move to `Todo`.
 - Do not edit the issue body/description for planning or progress tracking.
-- Use exactly one persistent workpad comment (`## Codex Workpad`) per issue.
+- Use exactly one persistent workpad comment (`## Symphony Workpad`) per issue.
 - If comment editing is unavailable in-session, use the update script. Only report blocked if both MCP editing and script-based editing are unavailable.
 - Temporary proof edits are allowed only for local verification and must be reverted before commit.
 - If out-of-scope improvements are found, create a separate Backlog issue rather
@@ -307,7 +307,7 @@ Use this only when completion is blocked by missing required tools or missing au
 Use this exact structure for the persistent workpad comment and keep it updated in place throughout execution:
 
 ````md
-## Codex Workpad
+## Symphony Workpad
 
 ```text
 <hostname>:<abs-path>@<short-sha>
