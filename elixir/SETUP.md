@@ -10,7 +10,7 @@ This guide walks through a practical multi-project setup using placeholder proje
 The key split is:
 
 - `symphony.yml` is the global Symphony runtime config
-- each repo gets its own `WORKFLOW.md`
+- each repo gets its own `.workflow/WORKFLOW.md`
 
 ## 1. Prerequisites
 
@@ -44,18 +44,19 @@ mise exec -- mix setup
 mise exec -- mix build
 ```
 
-## 2. Add `WORKFLOW.md` to each repo
+## 2. Add `.workflow/WORKFLOW.md` to each repo
 
-Each project repo should contain its own `WORKFLOW.md`.
+Each project repo should contain its own `.workflow/WORKFLOW.md`.
 
 Start by copying the example from this directory:
 
 ```bash
-cp /path/to/symphony/elixir/WORKFLOW.md ~/dev/project-a/WORKFLOW.md
-cp /path/to/symphony/elixir/WORKFLOW.md ~/dev/project-b/WORKFLOW.md
+mkdir -p ~/dev/project-a/.workflow ~/dev/project-b/.workflow
+cp /path/to/symphony/elixir/WORKFLOW.md ~/dev/project-a/.workflow/WORKFLOW.md
+cp /path/to/symphony/elixir/WORKFLOW.md ~/dev/project-b/.workflow/WORKFLOW.md
 ```
 
-In multi-project mode, each repo-local `WORKFLOW.md` may define:
+In multi-project mode, each repo-local `.workflow/WORKFLOW.md` may define:
 
 - `hooks.*`
 - `agent.default_effort`
@@ -87,16 +88,16 @@ Title: {{ issue.title }}
 {{ issue.description }}
 ```
 
-Customize each repo's `WORKFLOW.md` with that repo's build, test, and delivery expectations.
+Customize each repo's `.workflow/WORKFLOW.md` with that repo's build, test, and delivery expectations.
 
-You can also add issue-state-specific workflow files beside the default workflow. Symphony checks
+You can also add issue-state-specific workflow files beside the default workflow in `.workflow/`. Symphony checks
 for `WORKFLOW_<state>.md`, where the Linear state is lowercased and spaces/punctuation become `-`:
 
 - `Todo` -> `WORKFLOW_todo.md`
 - `Address Feedback` -> `WORKFLOW_address-feedback.md`
 - `In Progress` -> `WORKFLOW_in-progress.md`
 
-If the state-specific file does not exist, Symphony falls back to the configured `WORKFLOW.md`.
+If the state-specific file does not exist, Symphony falls back to `.workflow/WORKFLOW.md`.
 
 ## 3. Create a global `symphony.yml`
 
@@ -166,13 +167,11 @@ opencode:
 projects:
   - linear_project: project-a
     repo: ~/dev/project-a
-    workflow: ~/dev/project-a/WORKFLOW.md
     workspace_root: ~/work/symphony-workspaces/project-a
     backend: codex
 
   - linear_project: project-b
     repo: ~/dev/project-b
-    workflow: ~/dev/project-b/WORKFLOW.md
     workspace_root: ~/work/symphony-workspaces/project-b
     backend: claude
 ```
@@ -182,8 +181,8 @@ How this works:
 - Symphony polls Linear once using the global `tracker` config
 - `instance.name` labels this Symphony runtime in the dashboard and CLI status UI
 - `server.port` enables the observability dashboard at a fixed port, while CLI `--port` can still override it
-- when it sees a ticket in Linear project `project-a`, it uses the `project-a` repo and workflow
-- when it sees a ticket in Linear project `project-b`, it uses the `project-b` repo and workflow
+- when it sees a ticket in Linear project `project-a`, it uses the `project-a` repo and `.workflow/WORKFLOW.md`
+- when it sees a ticket in Linear project `project-b`, it uses the `project-b` repo and `.workflow/WORKFLOW.md`
 - if a ticket has no backend label, Symphony uses the route backend, then falls back to `agent.backend`
 
 Backend precedence for a ticket, from lowest to highest, is:
@@ -203,7 +202,7 @@ OpenCode agent precedence for a ticket, from lowest to highest, is:
 Effort precedence, from lowest to highest, is:
 
 1. global `agent.default_effort` in `symphony.yml`
-2. repo-local `WORKFLOW.md` `agent.default_effort`
+2. repo-local `.workflow/WORKFLOW.md` `agent.default_effort`
 3. thinking label on the Linear ticket such as `thinking/high`
 
 If you prefer to keep the global config beside the repos, relative paths also work. They resolve relative to the directory containing `symphony.yml`.
@@ -266,7 +265,7 @@ A simple smoke test:
 1. Create a Linear issue in the `project-a` project.
 2. Start Symphony with your `symphony.yml`.
 3. Confirm Symphony creates or reuses a workspace under `~/work/symphony-workspaces/project-a/...`.
-4. Confirm the prompt and hooks come from `~/dev/project-a/WORKFLOW.md`, or from a matching
+4. Confirm the prompt and hooks come from `~/dev/project-a/.workflow/WORKFLOW.md`, or from a matching
    `WORKFLOW_<state>.md` file when one exists.
 5. Repeat with an issue in `project-b` and confirm it routes to the other repo and workflow.
 
@@ -275,8 +274,8 @@ If you add a backend label like `opencode` to a ticket, that label overrides the
 ## 7. Common mistakes
 
 - The Linear project slug in `projects[].linear_project` does not match the actual Linear project slug.
-- `projects[].workflow` points to a file that does not exist.
-- Repo-local `WORKFLOW.md` includes global config like `tracker`, `worker`, `codex`, `claude`, or `opencode`.
+- The repo is missing `.workflow/WORKFLOW.md`.
+- Repo-local `.workflow/WORKFLOW.md` includes global config like `tracker`, `worker`, `codex`, `claude`, or `opencode`.
 - `LINEAR_API_KEY` is missing in the shell where Symphony starts.
 - A repo path contains spaces and is not quoted in YAML.
 
@@ -286,7 +285,6 @@ If your repo path contains spaces, quote it:
 projects:
   - linear_project: project-a
     repo: "~/dev/project a"
-    workflow: "~/dev/project a/WORKFLOW.md"
 ```
 
 ## 8. Recommended file layout
@@ -295,8 +293,8 @@ One reasonable layout looks like this:
 
 ```text
 ~/ops/symphony/symphony.yml
-~/dev/project-a/WORKFLOW.md
-~/dev/project-b/WORKFLOW.md
+~/dev/project-a/.workflow/WORKFLOW.md
+~/dev/project-b/.workflow/WORKFLOW.md
 ~/work/symphony-workspaces/
 ```
 

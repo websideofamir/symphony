@@ -69,13 +69,11 @@ telemetry:
 projects:
   - linear_project: project-a
     repo: your-org/project-a
-    workflow: WORKFLOW.md
     workspace_root: ~/work/symphony-workspaces/project-a
     backend: codex
 
   - linear_project: project-b
     repo: your-org/project-b
-    workflow: WORKFLOW.md
     default_branch: main
     workspace_root: ~/work/symphony-workspaces/project-b
     backend: claude

@@ -716,9 +716,9 @@ defmodule SymphonyElixir.Workspace do
     :persistent_term.put(key, System.monotonic_time(:millisecond))
   end
 
-  defp validate_project_route_workflow(%{workflow: workflow_ref}, workspace_root, repo_source, issue_context, nil, _settings)
-       when is_binary(workflow_ref) and workflow_ref != "" do
+  defp validate_project_route_workflow(route, workspace_root, repo_source, issue_context, nil, _settings) do
     cache_repo = repo_cache_path(workspace_root, repo_source)
+    workflow_ref = Config.project_workflow_ref(route)
 
     case resolve_project_workflow(cache_repo, workflow_ref) do
       {:ok, workflow_path} ->
@@ -738,10 +738,11 @@ defmodule SymphonyElixir.Workspace do
     end
   end
 
-  defp validate_project_route_workflow(%{workflow: workflow_ref}, workspace_root, repo_source, _issue_context, worker_host, settings)
-       when is_binary(workflow_ref) and workflow_ref != "" and is_binary(worker_host) do
+  defp validate_project_route_workflow(route, workspace_root, repo_source, _issue_context, worker_host, settings)
+       when is_binary(worker_host) do
     timeout_ms = hooks_timeout_ms(settings)
     cache_repo = repo_cache_path(workspace_root, repo_source)
+    workflow_ref = Config.project_workflow_ref(route)
 
     with {:ok, workflow_path} <- resolve_project_workflow(cache_repo, workflow_ref) do
       case run_remote_command(worker_host, build_remote_workflow_validation_script(workflow_path), timeout_ms) do
@@ -762,9 +763,6 @@ defmodule SymphonyElixir.Workspace do
       end
     end
   end
-
-  defp validate_project_route_workflow(_route, _workspace_root, _repo_source, _issue_context, _worker_host, _settings),
-    do: :ok
 
   defp add_workspace_worktree(workspace, cache_repo, branch_name, target_branch, repo_source, issue_context, nil, timeout_ms) do
     case run_local_script(build_worktree_add_script(cache_repo, workspace, branch_name, target_branch), timeout_ms) do

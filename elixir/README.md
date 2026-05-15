@@ -31,7 +31,7 @@ Symphony stops the active agent for that issue and cleans up matching workspaces
 ## Features
 
 - Multi-backend orchestration with Codex, OpenCode, and Claude Code.
-- Multi-project routing from one Symphony instance to multiple repos and repo-local `WORKFLOW.md`
+- Multi-project routing from one Symphony instance to multiple repos and repo-local `.workflow/WORKFLOW.md`
   files.
 - Per-project backend defaults in `symphony.yml`.
 - Per-ticket backend switching through Linear labels like `codex`, `claude`, and `opencode`.
@@ -51,12 +51,12 @@ Symphony stops the active agent for that issue and cleans up matching workspaces
 2. Get a new personal token in Linear via Settings → Security & access → Personal API keys, and
    set it as the `LINEAR_API_KEY` environment variable.
 3. Copy this directory's `symphony.yml` somewhere outside your repo or into an ops/config repo.
-4. Copy this directory's `WORKFLOW.md` into each repo Symphony should operate on.
+4. Copy this directory's `WORKFLOW.md` into each repo's `.workflow/WORKFLOW.md`.
 4. Optionally copy the `commit`, `push`, `pull`, `land`, and `linear` skills to your repo.
    - The `linear` skill expects Symphony's `linear_graphql` app-server tool for raw Linear GraphQL
      operations such as comment editing or upload flows.
 5. Customize `symphony.yml` with your Linear, backend, and project-routing config.
-6. Customize each copied repo-local `WORKFLOW.md` with that repo's hooks, prompt, and local agent
+6. Customize each copied repo-local `.workflow/WORKFLOW.md` with that repo's hooks, prompt, and local agent
    overrides.
    - To get a Linear project's slug, right-click the project and copy its URL. The slug is part of
      the URL.
@@ -103,7 +103,7 @@ Optional flags:
 - `--port` also starts the Phoenix observability service and overrides `server.port`
   (default: disabled)
 
-`symphony.yml` is the global runtime config. Repo-local `WORKFLOW.md` files contain YAML front
+`symphony.yml` is the global runtime config. Repo-local `.workflow/WORKFLOW.md` files contain YAML front
 matter for project-local workflow settings plus a Markdown body used as the agent session prompt.
 
 Minimal example:
@@ -140,7 +140,6 @@ opencode:
 projects:
   - linear_project: "project-a"
     repo: git@github.com:your-org/project-a.git
-    workflow: /absolute/path/to/project-a/WORKFLOW.md
 ```
 
 ```md
@@ -180,12 +179,10 @@ opencode:
 projects:
   - linear_project: "project-a"
     repo: ./dev/project-a
-    workflow: ./dev/project-a/WORKFLOW.md
     workspace_root: ./dev/project-a-workspaces
     backend: codex
   - linear_project: "project-b"
     repo: ./dev/project-b
-    workflow: ./dev/project-b/WORKFLOW.md
     backend: claude
 ```
 
@@ -209,17 +206,17 @@ Notes:
   `project.slugId`.
 - `projects[].repo` is optional. When set, Symphony clones that repo into a brand-new workspace
   before running `hooks.after_create`.
-- `projects[].workflow` is required in `symphony.yml` and must point at the repo-local
-  `WORKFLOW.md` Symphony should use for that Linear project.
+- `projects[].workflow` is optional. When omitted, Symphony uses `.workflow/WORKFLOW.md` in the
+  project repo root.
 - Before loading that workflow for a specific issue, Symphony checks for a state-specific workflow
-  file beside it. For example, `Todo` uses `WORKFLOW_todo.md` when present, and
-  `Address Feedback` uses `WORKFLOW_address-feedback.md` when present. If the state-specific file
-  is missing, Symphony falls back to the configured `WORKFLOW.md`.
+  file beside it in `.workflow/`. For example, `Todo` uses `.workflow/WORKFLOW_todo.md` when
+  present, and `Address Feedback` uses `.workflow/WORKFLOW_address-feedback.md` when present. If
+  the state-specific file is missing, Symphony falls back to `.workflow/WORKFLOW.md`.
 - `projects[].workspace_root` is optional. When omitted, Symphony uses
   `workspace.root/<project-slug>/<issue-identifier>` for multi-project workflows so different
   projects do not collide under the shared root.
 - `projects[].backend` is optional. When omitted, Symphony falls back to `agent.backend`.
-- In multi-project mode, repo-local `WORKFLOW.md` files may define `hooks.*`,
+- In multi-project mode, repo-local `.workflow/WORKFLOW.md` files may define `hooks.*`,
   `agent.default_effort`, `agent.max_turns`, and the prompt body only.
 - `tracker.project_slug` remains the legacy single-project shorthand when you explicitly start
   Symphony with a `WORKFLOW.md` path.
@@ -287,11 +284,11 @@ opencode:
   model: openai/gpt-5.3
 projects:
   - linear_project: project-a
-    workflow: $PROJECT_A_WORKFLOW
+    repo: $PROJECT_A_REPO
 ```
 
 - If `symphony.yml` is missing or has invalid YAML at startup, Symphony does not boot.
-- In multi-project mode, if a route's `WORKFLOW.md` is missing or invalid, Symphony does not boot.
+- In multi-project mode, if a route's `.workflow/WORKFLOW.md` is missing or invalid, Symphony does not boot.
 - If a later reload fails, Symphony keeps running with the last known good config and logs the
   reload error until the file is fixed.
 - `server.port` or CLI `--port` enables the optional Phoenix LiveView dashboard, Prometheus
@@ -457,7 +454,7 @@ Selection precedence:
 
 - Backend precedence is `agent.backend`, then `projects[].backend`, then a backend label on the
   Linear issue.
-- Effort precedence is global `agent.default_effort`, then repo-local `WORKFLOW.md`
+- Effort precedence is global `agent.default_effort`, then repo-local `.workflow/WORKFLOW.md`
   `agent.default_effort`, then a Linear thinking label.
 - OpenCode agent precedence is `opencode.agent`, then `agent.default_agents_by_state[issue.state]`,
   then a Linear `agent/<name>` label.
@@ -484,7 +481,7 @@ The observability UI now runs on a minimal Phoenix stack:
 - `lib/`: application code and Mix tasks
 - `test/`: ExUnit coverage for runtime behavior
 - `symphony.yml`: global runtime config and Linear project routing
-- `WORKFLOW.md`: repo-local workflow contract for a single routed project
+- `.workflow/WORKFLOW.md`: repo-local workflow contract for a routed project
 - `../.codex/`: repository-local skills and setup helpers used by the workflow
 
 ## Testing
@@ -509,7 +506,7 @@ Optional environment variables:
 `make e2e` currently targets the local-only OpenCode flow.
 
 The live test creates a temporary Linear project and issue, writes a temporary `symphony.yml` plus
-repo-local `WORKFLOW.md`, runs a real agent turn, verifies the workspace side effect, requires
+repo-local `.workflow/WORKFLOW.md`, runs a real agent turn, verifies the workspace side effect, requires
 OpenCode to comment on and close the Linear issue, then marks the project completed so the run
 remains visible in Linear.
 

@@ -77,6 +77,7 @@ defmodule SymphonyElixir.Config do
           kind: repo_source_kind()
         }
 
+  @default_project_workflow_ref ".workflow/WORKFLOW.md"
   @github_repo_pattern ~r/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/
 
   @spec startup_mode() :: :legacy | :global
@@ -565,7 +566,7 @@ defmodule SymphonyElixir.Config do
   @spec resolve_project_workflow_path(Path.t(), String.t()) :: {:ok, Path.t()} | {:error, term()}
   def resolve_project_workflow_path(repo_root, workflow_ref)
       when is_binary(repo_root) and is_binary(workflow_ref) do
-    normalized_workflow_ref = String.trim(workflow_ref)
+    normalized_workflow_ref = project_workflow_ref(%{workflow: workflow_ref})
 
     cond do
       normalized_workflow_ref == "" ->
@@ -585,6 +586,16 @@ defmodule SymphonyElixir.Config do
         end
     end
   end
+
+  @spec project_workflow_ref(linear_project_route()) :: String.t()
+  def project_workflow_ref(%{workflow: workflow}) when is_binary(workflow) do
+    case String.trim(workflow) do
+      "" -> @default_project_workflow_ref
+      normalized -> normalized
+    end
+  end
+
+  def project_workflow_ref(_route), do: @default_project_workflow_ref
 
   @spec linear_project_route(map() | String.t() | nil) :: linear_project_route() | nil
   def linear_project_route(issue_or_identifier), do: linear_project_route(issue_or_identifier, settings!())
@@ -729,11 +740,10 @@ defmodule SymphonyElixir.Config do
     end
   end
 
-  defp validate_global_project_route(%{slug: slug, workflow: workflow_path} = route) do
-    cond do
-      not (is_binary(workflow_path) and String.trim(workflow_path) != "") ->
-        {:error, {:invalid_workflow_config, "projects #{inspect(slug)} must set an explicit workflow path"}}
+  defp validate_global_project_route(%{slug: slug} = route) do
+    workflow_path = project_workflow_ref(route)
 
+    cond do
       not (is_binary(route.repo) and String.trim(route.repo) != "") ->
         {:error, {:invalid_workflow_config, "projects #{inspect(slug)} must set an explicit repo"}}
 

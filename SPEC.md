@@ -283,8 +283,10 @@ Fields:
 
 Workflow file path precedence:
 
-1. Explicit application/runtime setting (set by CLI startup path).
-2. Default: `WORKFLOW.md` in the current process working directory.
+1. Explicit application/runtime setting (set by CLI startup path) in legacy single-project mode.
+2. In multi-project mode, `projects[].workflow` when configured.
+3. In multi-project mode, default to `.workflow/WORKFLOW.md` in the routed project repo root.
+4. Legacy single-project default: `WORKFLOW.md` in the current process working directory.
 
 Per-issue workflow override:
 
@@ -293,7 +295,8 @@ Per-issue workflow override:
 - If `WORKFLOW_<state>.md` exists beside the configured workflow file, use that file for the issue.
 - Examples: `Todo` -> `WORKFLOW_todo.md`; `Address Feedback` ->
   `WORKFLOW_address-feedback.md`.
-- If the state-specific file is missing, fall back to the configured `WORKFLOW.md`.
+- In the default multi-project layout these files live in `.workflow/` beside `.workflow/WORKFLOW.md`.
+- If the state-specific file is missing, fall back to the base workflow file.
 
 Loader behavior:
 

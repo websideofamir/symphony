@@ -83,6 +83,7 @@ defmodule SymphonyElixir.TestSupport do
 
   def write_project_workflow_file!(path, overrides \\ []) do
     workflow = project_workflow_content(overrides)
+    File.mkdir_p!(Path.dirname(path))
     File.write!(path, workflow)
     :ok
   end
@@ -496,8 +497,7 @@ defmodule SymphonyElixir.TestSupport do
           instance_name: nil,
           projects: [
             %{
-              linear_project: "project",
-              workflow: "./PROJECT_WORKFLOW.md"
+              linear_project: "project"
             }
           ]
         ],

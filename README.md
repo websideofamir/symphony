@@ -16,15 +16,15 @@ The experimental Elixir implementation currently supports:
 
 - Codex, Claude Code, and OpenCode as unattended agent backends.
 - Multi-project routing from one Symphony instance across multiple repos.
-- Repo-local `WORKFLOW.md` files with a global `symphony.yml` runtime config.
+- Repo-local `.workflow/WORKFLOW.md` files with a global `symphony.yml` runtime config.
 - Linear label-based backend switching with labels like `codex`, `claude`, and `opencode`.
 - Linear label-based thinking/effort switching with labels like `thinking/high` and
   `thinking/max`.
 - Linear label-based OpenCode agent switching with Linear grouped labels like `agent/review`.
 - State-based OpenCode default agents through `agent.default_agents_by_state`.
 - Linear label-based serial lanes with Linear grouped labels like `serial/release`.
-- Per-state workflow prompt overrides through files like `WORKFLOW_todo.md` and
-  `WORKFLOW_address-feedback.md` with fallback to `WORKFLOW.md`.
+- Per-state workflow prompt overrides through files like `.workflow/WORKFLOW_todo.md` and
+  `.workflow/WORKFLOW_address-feedback.md` with fallback to `.workflow/WORKFLOW.md`.
 - `Address Feedback` workflow state for incremental fixes from GitHub PR comments or Linear issue comments.
 - Built-in single-lane `Merging` dispatch so only one merge/land issue runs at a time.
 

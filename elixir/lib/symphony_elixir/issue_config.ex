@@ -50,7 +50,9 @@ defmodule SymphonyElixir.IssueConfig do
 
   defp resolve_global(issue, %Schema{} = settings) do
     case Config.linear_project_route(issue, settings) do
-      %{workflow: workflow_ref} = project_route when is_binary(workflow_ref) and workflow_ref != "" ->
+      %{repo: repo} = project_route when is_binary(repo) and repo != "" ->
+        workflow_ref = Config.project_workflow_ref(project_route)
+
         with {:ok, repo_root} <- Workspace.ensure_local_repo_cache(project_route, settings),
              {:ok, workflow_path} <- Config.resolve_project_workflow_path(repo_root, workflow_ref),
              selected_workflow_path <- workflow_path_for_issue(workflow_path, issue),
@@ -65,11 +67,11 @@ defmodule SymphonyElixir.IssueConfig do
              workflow: workflow,
              settings: effective_settings,
              prompt_template: prompt_template(workflow.prompt_template)
-           }}
+            }}
         end
 
       %{slug: slug} ->
-        {:error, {:missing_project_workflow, slug}}
+        {:error, {:missing_project_repo, slug}}
 
       nil ->
         {:error, {:missing_project_route, project_slug(issue)}}

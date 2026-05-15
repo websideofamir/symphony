@@ -1782,6 +1782,60 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     end
   end
 
+  test "issue config defaults project workflow to repo .workflow directory" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-default-project-workflow-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      repo_root = Path.join(test_root, "repo")
+      config_path = Path.join(test_root, "symphony.yml")
+
+      init_repo!(repo_root, "default workflow repo\n")
+      File.mkdir_p!(Path.join(repo_root, ".workflow"))
+
+      write_project_workflow_repo_file!(repo_root, ".workflow/WORKFLOW.md",
+        prompt: "Default folder workflow for {{ issue.identifier }}"
+      )
+
+      write_project_workflow_repo_file!(repo_root, ".workflow/WORKFLOW_todo.md",
+        prompt: "Todo folder workflow for {{ issue.identifier }}"
+      )
+
+      write_symphony_config_file!(config_path,
+        projects: [
+          %{
+            linear_project: "project-default",
+            repo: repo_root
+          }
+        ]
+      )
+
+      SymphonyConfig.set_config_file_path(config_path)
+
+      settings = Config.settings!()
+
+      issue = %Issue{
+        identifier: "AP-44",
+        title: "Default workflow",
+        state: "Todo",
+        project_slug: "project-default"
+      }
+
+      assert [%{workflow: nil}] = Config.linear_project_routes(settings)
+      assert Config.project_workflow_ref(List.first(Config.linear_project_routes(settings))) ==
+               ".workflow/WORKFLOW.md"
+
+      assert {:ok, issue_config} = SymphonyElixir.IssueConfig.resolve(issue)
+      assert issue_config.workflow_path == Path.join(repo_root, ".workflow/WORKFLOW_todo.md")
+      assert PromptBuilder.build_prompt(issue, issue_config: issue_config) == "Todo folder workflow for AP-44"
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
   test "symphony config parses instance name and server port" do
     config_root =
       Path.join(
@@ -1877,6 +1931,38 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
       assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
       assert message =~ "duplicate project slug"
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "config validate allows omitted project workflow when repo is set" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-global-config-default-workflow-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      repo_root = Path.join(test_root, "repo")
+      config_path = Path.join(test_root, "symphony.yml")
+
+      init_repo!(repo_root, "default workflow config\n")
+
+      write_symphony_config_file!(config_path,
+        projects: [
+          %{
+            linear_project: "project-default",
+            repo: repo_root
+          }
+        ]
+      )
+
+      SymphonyConfig.set_config_file_path(config_path)
+
+      assert :ok = Config.validate!()
+      assert [%{workflow: nil} = route] = Config.linear_project_routes()
+      assert Config.project_workflow_ref(route) == ".workflow/WORKFLOW.md"
     after
       File.rm_rf(test_root)
     end
