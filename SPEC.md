@@ -286,6 +286,15 @@ Workflow file path precedence:
 1. Explicit application/runtime setting (set by CLI startup path).
 2. Default: `WORKFLOW.md` in the current process working directory.
 
+Per-issue workflow override:
+
+- Before rendering an issue prompt, derive a state-specific workflow filename from the issue's
+  current tracker state by lowercasing it and replacing non-alphanumeric runs with `-`.
+- If `WORKFLOW_<state>.md` exists beside the configured workflow file, use that file for the issue.
+- Examples: `Todo` -> `WORKFLOW_todo.md`; `Address Feedback` ->
+  `WORKFLOW_address-feedback.md`.
+- If the state-specific file is missing, fall back to the configured `WORKFLOW.md`.
+
 Loader behavior:
 
 - If the file cannot be read, return `missing_workflow_file` error.
@@ -414,6 +423,11 @@ Fields:
   - Default: empty map.
   - State keys are normalized (`lowercase`) for lookup.
   - Invalid entries (non-positive or non-numeric) are ignored.
+- `default_agents_by_state` (map `state_name -> OpenCode agent name`)
+  - Default: empty map.
+  - State keys are normalized (`lowercase`) for lookup.
+  - Applies only when the effective backend is `opencode`.
+  - A ticket-level `agent/<name>` label overrides this default.
 
 #### 5.3.6 `codex` (object)
 

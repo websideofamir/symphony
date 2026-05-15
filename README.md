@@ -21,7 +21,10 @@ The experimental Elixir implementation currently supports:
 - Linear label-based thinking/effort switching with labels like `thinking/high` and
   `thinking/max`.
 - Linear label-based OpenCode agent switching with Linear grouped labels like `agent/review`.
+- State-based OpenCode default agents through `agent.default_agents_by_state`.
 - Linear label-based serial lanes with Linear grouped labels like `serial/release`.
+- Per-state workflow prompt overrides through files like `WORKFLOW_todo.md` and
+  `WORKFLOW_address-feedback.md` with fallback to `WORKFLOW.md`.
 - `Address Feedback` workflow state for incremental fixes from GitHub PR comments or Linear issue comments.
 - Built-in single-lane `Merging` dispatch so only one merge/land issue runs at a time.
 

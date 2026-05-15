@@ -1337,6 +1337,8 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert Config.max_concurrent_agents_for_state("Closed") == 10
     assert Config.max_concurrent_agents_for_state(:not_a_string) == 10
 
+    assert Config.settings!().agent.default_agents_by_state == %{}
+
     write_workflow_file!(Workflow.workflow_file_path(), worker_max_concurrent_agents_per_host: 2)
     assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
     assert message =~ "OpenCode v1 is local-only"
@@ -1366,6 +1368,11 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
              "in progress" => 2
            }
 
+    assert Schema.normalize_state_agents(%{"In Progress" => "build", todo: " review "}) == %{
+             "todo" => "review",
+             "in progress" => "build"
+           }
+
     changeset =
       {%{}, %{limits: :map}}
       |> Changeset.cast(%{limits: %{"" => 1, "todo" => 0}}, [:limits])
@@ -1374,6 +1381,16 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert changeset.errors == [
              limits: {"state names must not be blank", []},
              limits: {"limits must be positive integers", []}
+           ]
+
+    agent_changeset =
+      {%{}, %{agents: :map}}
+      |> Changeset.cast(%{agents: %{"" => "build", "todo" => ""}}, [:agents])
+      |> Schema.validate_state_agents(:agents)
+
+    assert agent_changeset.errors == [
+             agents: {"state names must not be blank", []},
+             agents: {"agent names must not be blank", []}
            ]
   end
 
@@ -2020,6 +2037,54 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       route = SymphonyElixir.AgentRoute.resolve(issue, issue_config.settings)
       assert route.backend == "codex"
       assert route.effort == "max"
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "issue config uses issue-state project workflow when present" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-issue-state-workflow-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      repo_root = Path.join(test_root, "project-feedback")
+      config_path = Path.join(test_root, "symphony.yml")
+
+      init_repo!(repo_root, "project feedback\n")
+
+      write_project_workflow_repo_file!(repo_root, "WORKFLOW.md",
+        prompt: "Default project workflow for {{ issue.identifier }}"
+      )
+
+      write_project_workflow_repo_file!(repo_root, "WORKFLOW_address-feedback.md",
+        prompt: "Address feedback workflow for {{ issue.identifier }}"
+      )
+
+      write_symphony_config_file!(config_path,
+        projects: [
+          %{
+            linear_project: "project-feedback",
+            repo: repo_root,
+            workflow: "./WORKFLOW.md"
+          }
+        ]
+      )
+
+      SymphonyConfig.set_config_file_path(config_path)
+
+      issue = %Issue{
+        identifier: "AP-43",
+        title: "Address feedback",
+        state: "Address Feedback",
+        project_slug: "project-feedback"
+      }
+
+      assert {:ok, issue_config} = SymphonyElixir.IssueConfig.resolve(issue)
+      assert Path.basename(issue_config.workflow_path) == "WORKFLOW_address-feedback.md"
+      assert PromptBuilder.build_prompt(issue, issue_config: issue_config) == "Address feedback workflow for AP-43"
     after
       File.rm_rf(test_root)
     end

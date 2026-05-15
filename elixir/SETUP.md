@@ -89,6 +89,15 @@ Title: {{ issue.title }}
 
 Customize each repo's `WORKFLOW.md` with that repo's build, test, and delivery expectations.
 
+You can also add issue-state-specific workflow files beside the default workflow. Symphony checks
+for `WORKFLOW_<state>.md`, where the Linear state is lowercased and spaces/punctuation become `-`:
+
+- `Todo` -> `WORKFLOW_todo.md`
+- `Address Feedback` -> `WORKFLOW_address-feedback.md`
+- `In Progress` -> `WORKFLOW_in-progress.md`
+
+If the state-specific file does not exist, Symphony falls back to the configured `WORKFLOW.md`.
+
 ## 3. Create a global `symphony.yml`
 
 Put `symphony.yml` somewhere outside your app repos, or in a dedicated ops/config repo.
@@ -138,6 +147,10 @@ agent:
   default_effort: medium
   max_concurrent_agents: 10
   max_turns: 20
+  default_agents_by_state:
+    Todo: agent-1
+    In Progress: agent-2
+    Address Feedback: review
 
 codex:
   command: codex app-server
@@ -178,6 +191,14 @@ Backend precedence for a ticket, from lowest to highest, is:
 1. `agent.backend` in `symphony.yml`
 2. `projects[].backend`
 3. backend routing label on the Linear ticket such as `codex`, `claude`, or `opencode`
+
+OpenCode agent precedence for a ticket, from lowest to highest, is:
+
+1. `opencode.agent` in `symphony.yml`
+2. `agent.default_agents_by_state[issue.state]` in `symphony.yml`
+3. OpenCode agent routing label on the Linear ticket such as `agent/review`
+
+`agent.default_agents_by_state` only matters when the effective backend is `opencode`.
 
 Effort precedence, from lowest to highest, is:
 
@@ -245,7 +266,8 @@ A simple smoke test:
 1. Create a Linear issue in the `project-a` project.
 2. Start Symphony with your `symphony.yml`.
 3. Confirm Symphony creates or reuses a workspace under `~/work/symphony-workspaces/project-a/...`.
-4. Confirm the prompt and hooks come from `~/dev/project-a/WORKFLOW.md`.
+4. Confirm the prompt and hooks come from `~/dev/project-a/WORKFLOW.md`, or from a matching
+   `WORKFLOW_<state>.md` file when one exists.
 5. Repeat with an issue in `project-b` and confirm it routes to the other repo and workflow.
 
 If you add a backend label like `opencode` to a ticket, that label overrides the project's default backend for that issue.

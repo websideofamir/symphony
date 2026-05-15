@@ -36,9 +36,20 @@ defmodule SymphonyElixir.PromptBuilder do
             {:error, reason} -> raise RuntimeError, "workflow_unavailable: #{inspect(reason)}"
           end
         else
-          Workflow.current()
+          legacy_workflow_for_issue(issue)
           |> prompt_template!()
         end
+    end
+  end
+
+  defp legacy_workflow_for_issue(issue) do
+    workflow_path = Workflow.workflow_file_path()
+    selected_workflow_path = IssueConfig.workflow_path_for_issue(workflow_path, issue)
+
+    if selected_workflow_path == workflow_path do
+      Workflow.current()
+    else
+      Workflow.load(selected_workflow_path)
     end
   end
 

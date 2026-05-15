@@ -1156,6 +1156,67 @@ defmodule SymphonyElixir.CoreTest do
     assert prompt == "Retry #2"
   end
 
+  test "prompt builder uses issue-state workflow file when it exists" do
+    write_workflow_file!(Workflow.workflow_file_path(), prompt: "Default workflow for {{ issue.identifier }}")
+
+    state_workflow_path = Path.join(Path.dirname(Workflow.workflow_file_path()), "WORKFLOW_address-feedback.md")
+    write_workflow_file!(state_workflow_path, prompt: "Feedback workflow for {{ issue.identifier }}")
+
+    issue = %Issue{
+      identifier: "MT-202",
+      title: "Address review feedback",
+      description: "Retry flow",
+      state: "Address Feedback",
+      url: "https://example.org/issues/MT-202",
+      labels: []
+    }
+
+    assert PromptBuilder.build_prompt(issue) == "Feedback workflow for MT-202"
+  end
+
+  test "issue config resolves legacy issue-state workflow settings when present" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      max_turns: 20,
+      prompt: "Default workflow for {{ issue.identifier }}"
+    )
+
+    state_workflow_path = Path.join(Path.dirname(Workflow.workflow_file_path()), "WORKFLOW_todo.md")
+
+    write_workflow_file!(state_workflow_path,
+      max_turns: 3,
+      prompt: "Todo workflow for {{ issue.identifier }}"
+    )
+
+    issue = %Issue{
+      identifier: "MT-204",
+      title: "Use state workflow settings",
+      description: "Resolve config from state workflow",
+      state: "Todo",
+      url: "https://example.org/issues/MT-204",
+      labels: []
+    }
+
+    assert {:ok, issue_config} = SymphonyElixir.IssueConfig.resolve(issue)
+    assert Path.basename(issue_config.workflow_path) == "WORKFLOW_todo.md"
+    assert issue_config.settings.agent.max_turns == 3
+    assert PromptBuilder.build_prompt(issue, issue_config: issue_config) == "Todo workflow for MT-204"
+  end
+
+  test "prompt builder falls back to default workflow file when state workflow is missing" do
+    write_workflow_file!(Workflow.workflow_file_path(), prompt: "Default workflow for {{ issue.identifier }}")
+
+    issue = %Issue{
+      identifier: "MT-203",
+      title: "No state workflow",
+      description: "Retry flow",
+      state: "Address Feedback",
+      url: "https://example.org/issues/MT-203",
+      labels: []
+    }
+
+    assert PromptBuilder.build_prompt(issue) == "Default workflow for MT-203"
+  end
+
   test "agent runner keeps workspace after successful OpenCode run" do
     test_root =
       Path.join(

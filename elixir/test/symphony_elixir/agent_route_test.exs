@@ -88,6 +88,45 @@ defmodule SymphonyElixir.AgentRouteTest do
            ]
   end
 
+  test "issue state default agent is used for OpenCode when no agent label is present" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      agent_backend: "opencode",
+      default_agents_by_state: %{"Todo" => "build", "Address Feedback" => "review"}
+    )
+
+    todo_route = AgentRoute.resolve(%{issue_fixture([]) | state: "Todo"})
+    feedback_route = AgentRoute.resolve(%{issue_fixture([]) | state: "Address Feedback"})
+
+    assert todo_route.opencode_agent == "build"
+    assert feedback_route.opencode_agent == "review"
+  end
+
+  test "agent labels override issue state default agent" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      agent_backend: "opencode",
+      default_agents_by_state: %{"Todo" => "build"}
+    )
+
+    route = AgentRoute.resolve(issue_fixture(["agent/review"]))
+
+    assert route.opencode_agent == "review"
+  end
+
+  test "conflicting agent labels fall back to issue state default agent when configured" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      agent_backend: "opencode",
+      default_agents_by_state: %{"Todo" => "build"}
+    )
+
+    route = AgentRoute.resolve(issue_fixture(["agent/review", "agent:triage"]))
+
+    assert route.opencode_agent == "build"
+
+    assert route.warnings == [
+             "multiple OpenCode agent labels (review, triage) found; falling back to state default OpenCode agent build"
+           ]
+  end
+
   test "legacy effort labels still resolve for compatibility" do
     write_workflow_file!(Workflow.workflow_file_path(),
       agent_backend: "codex",

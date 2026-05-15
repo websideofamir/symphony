@@ -125,6 +125,10 @@ agent:
   default_effort: medium
   max_concurrent_agents: 10
   max_turns: 20
+  default_agents_by_state:
+    Todo: agent-1
+    In Progress: agent-2
+    Address Feedback: review
 codex:
   command: codex app-server
 claude:
@@ -207,6 +211,10 @@ Notes:
   before running `hooks.after_create`.
 - `projects[].workflow` is required in `symphony.yml` and must point at the repo-local
   `WORKFLOW.md` Symphony should use for that Linear project.
+- Before loading that workflow for a specific issue, Symphony checks for a state-specific workflow
+  file beside it. For example, `Todo` uses `WORKFLOW_todo.md` when present, and
+  `Address Feedback` uses `WORKFLOW_address-feedback.md` when present. If the state-specific file
+  is missing, Symphony falls back to the configured `WORKFLOW.md`.
 - `projects[].workspace_root` is optional. When omitted, Symphony uses
   `workspace.root/<project-slug>/<issue-identifier>` for multi-project workflows so different
   projects do not collide under the shared root.
@@ -222,6 +230,8 @@ Notes:
   own default reasoning level.
 - `agent.max_concurrent_agents_by_state` can set per-state dispatch limits, but `Merging` is always
   capped at one active or queued issue so merge/land work never overlaps.
+- `agent.default_agents_by_state` maps Linear issue states to default OpenCode agents. It is used
+  only when the effective backend is `opencode` and the ticket has no `agent/<name>` label.
 - `opencode.command` defaults to `opencode serve --hostname 127.0.0.1 --port 0`.
 - `opencode.agent` defaults to `build`.
 - `agent/<name>` Linear labels override `opencode.agent` for a single OpenCode ticket. For example,
@@ -430,7 +440,7 @@ Routing behavior:
 - If the ticket uses the OpenCode backend and exactly one `agent/<name>` label is present, Symphony
   uses `<name>` instead of `opencode.agent` for that ticket.
 - If multiple `agent/<name>` labels are present on an OpenCode ticket, Symphony logs a warning and
-  falls back to `opencode.agent`.
+  falls back to the issue-state default agent when configured, otherwise to `opencode.agent`.
 - `agent/<name>` labels are ignored for Codex and Claude tickets.
 - Linear grouped labels are represented as `parent/child`; create an `agent` label group with child
   labels such as `review` or `test-primary-2`. Legacy flat labels like `agent:review` are still
@@ -449,6 +459,8 @@ Selection precedence:
   Linear issue.
 - Effort precedence is global `agent.default_effort`, then repo-local `WORKFLOW.md`
   `agent.default_effort`, then a Linear thinking label.
+- OpenCode agent precedence is `opencode.agent`, then `agent.default_agents_by_state[issue.state]`,
+  then a Linear `agent/<name>` label.
 
 Example:
 

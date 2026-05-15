@@ -73,6 +73,7 @@ defmodule SymphonyElixir.AgentRoute do
 
     default_backend = settings.agent.backend
     default_effort = Schema.normalize_optional_effort(settings.agent.default_effort)
+    default_opencode_agent = issue_state_default_agent(issue, settings)
 
     {backend, backend_warnings} =
       case backend_matches do
@@ -116,12 +117,12 @@ defmodule SymphonyElixir.AgentRoute do
           {agent, []}
 
         {"opencode", []} ->
-          {nil, []}
+          {default_opencode_agent, []}
 
         {"opencode", conflicts} ->
-          {nil,
+          {default_opencode_agent,
            [
-             "multiple OpenCode agent labels (#{Enum.join(conflicts, ", ")}) found; falling back to configured opencode.agent"
+             conflicting_agent_warning(conflicts, default_opencode_agent)
            ]}
 
         {_backend, _matches} ->
@@ -176,6 +177,20 @@ defmodule SymphonyElixir.AgentRoute do
   end
 
   defp normalize_label(_value), do: nil
+
+  defp issue_state_default_agent(%Issue{state: state}, settings) when is_binary(state) do
+    Map.get(settings.agent.default_agents_by_state, Schema.normalize_issue_state(state))
+  end
+
+  defp issue_state_default_agent(_issue, _settings), do: nil
+
+  defp conflicting_agent_warning(conflicts, default_agent) when is_binary(default_agent) do
+    "multiple OpenCode agent labels (#{Enum.join(conflicts, ", ")}) found; falling back to state default OpenCode agent #{default_agent}"
+  end
+
+  defp conflicting_agent_warning(conflicts, _default_agent) do
+    "multiple OpenCode agent labels (#{Enum.join(conflicts, ", ")}) found; falling back to configured opencode.agent"
+  end
 
   defp agent_label_value(label) when is_binary(label) do
     cond do
