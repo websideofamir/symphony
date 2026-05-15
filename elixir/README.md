@@ -220,6 +220,8 @@ Notes:
   `codex`.
 - `agent.default_effort` accepts `low`, `medium`, `high`, or `max`. If unset, each backend uses its
   own default reasoning level.
+- `agent.max_concurrent_agents_by_state` can set per-state dispatch limits, but `Merging` is always
+  capped at one active or queued issue so merge/land work never overlaps.
 - `opencode.command` defaults to `opencode serve --hostname 127.0.0.1 --port 0`.
 - `opencode.agent` defaults to `build`.
 - `agent/<name>` Linear labels override `opencode.agent` for a single OpenCode ticket. For example,
@@ -372,6 +374,9 @@ For the sample `symphony.yml`, `tracker.active_states` should contain:
 - `In Progress`
 - `Merging`
 - `Rework`
+
+`Merging` is a built-in exclusive lane: Symphony dispatches at most one active or queued retrying
+issue in `Merging` at a time, regardless of labels or the global concurrency limit.
 
 Default terminal states recognized by Symphony are:
 

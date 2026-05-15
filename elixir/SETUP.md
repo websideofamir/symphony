@@ -207,6 +207,9 @@ For the example config above, active states are:
 - `Merging`
 - `Rework`
 
+`Merging` is serialized automatically: Symphony only works on one active or queued retrying
+`Merging` issue at a time, regardless of labels.
+
 ## 5. Start Symphony
 
 From the Elixir app directory:

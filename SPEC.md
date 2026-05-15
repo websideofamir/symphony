@@ -834,8 +834,11 @@ Per-state limit:
 
 - `max_concurrent_agents_by_state[state]` if present (state key normalized)
 - otherwise fallback to global limit
+- The `Merging` state is always an exclusive built-in lane capped at one active or queued retrying
+  issue, regardless of labels or a higher configured state/global limit.
 
-The runtime counts issues by their current tracked state in the `running` map.
+The runtime counts issues by their current tracked state in the `running` map. Exclusive built-in
+lanes also count queued retry attempts for the same state.
 
 Optional SSH host limit:
 

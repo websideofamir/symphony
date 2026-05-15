@@ -763,6 +763,84 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert Orchestrator.should_dispatch_issue_for_test(issue, state)
   end
 
+  test "merging issues are globally serialized regardless of labels" do
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_active_states: ["Todo", "In Progress", "Merging"])
+
+    running_issue = %Issue{
+      id: "merging-running-1",
+      identifier: "MT-1050",
+      title: "Running merge",
+      state: "Merging",
+      labels: ["agent/review", "serial/release"]
+    }
+
+    state = %Orchestrator.State{
+      max_concurrent_agents: 3,
+      running: %{
+        running_issue.id => %{issue: running_issue}
+      },
+      claimed: MapSet.new([running_issue.id]),
+      agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+      retry_attempts: %{}
+    }
+
+    merging_issue = %Issue{
+      id: "merging-waiting-1",
+      identifier: "MT-1051",
+      title: "Waiting merge",
+      state: "Merging",
+      labels: ["agent/build", "serial/frontend"]
+    }
+
+    todo_issue = %Issue{
+      id: "todo-ready-1",
+      identifier: "MT-1052",
+      title: "Todo work",
+      state: "Todo",
+      labels: ["agent/build", "serial/frontend"]
+    }
+
+    refute Orchestrator.should_dispatch_issue_for_test(merging_issue, state)
+    assert Orchestrator.should_dispatch_issue_for_test(todo_issue, state)
+  end
+
+  test "queued merging retries hold the global merging lane" do
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_active_states: ["Todo", "In Progress", "Merging"])
+
+    state = %Orchestrator.State{
+      max_concurrent_agents: 3,
+      running: %{},
+      claimed: MapSet.new(["merging-retry-1"]),
+      agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+      retry_attempts: %{
+        "merging-retry-1" => %{
+          attempt: 1,
+          issue_state: "Merging",
+          labels: ["agent/review", "serial/release"]
+        }
+      }
+    }
+
+    merging_issue = %Issue{
+      id: "merging-waiting-retry-1",
+      identifier: "MT-1053",
+      title: "Waiting on retry merge lane",
+      state: "Merging",
+      labels: ["agent/build", "serial/frontend"]
+    }
+
+    todo_issue = %Issue{
+      id: "todo-ready-retry-1",
+      identifier: "MT-1054",
+      title: "Todo work beside retry",
+      state: "Todo",
+      labels: ["agent/build", "serial/frontend"]
+    }
+
+    refute Orchestrator.should_dispatch_issue_for_test(merging_issue, state)
+    assert Orchestrator.should_dispatch_issue_for_test(todo_issue, state)
+  end
+
   test "serial labels prevent concurrent dispatch within the same group" do
     running_issue = %Issue{
       id: "serial-running-1",

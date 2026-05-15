@@ -14,6 +14,7 @@ defmodule SymphonyElixir.Orchestrator do
   @failure_retry_base_ms 10_000
   @serial_label_prefix "serial:"
   @serial_grouped_label_prefix "serial/"
+  @exclusive_issue_state_limits %{"merging" => 1}
   # Slightly above the dashboard render interval so "checking now…" can render.
   @poll_transition_render_delay_ms 20
   @empty_codex_totals %{
@@ -628,7 +629,7 @@ defmodule SymphonyElixir.Orchestrator do
       !MapSet.member?(claimed, issue.id) and
       !Map.has_key?(running, issue.id) and
       available_slots(state) > 0 and
-      state_slots_available?(issue, running)
+      state_slots_available?(issue, state)
   end
 
   defp serial_slots_available?(%Issue{} = issue, %State{} = state) do
@@ -672,25 +673,58 @@ defmodule SymphonyElixir.Orchestrator do
     end)
   end
 
-  defp state_slots_available?(%Issue{state: issue_state}, running) when is_map(running) do
-    limit = Config.max_concurrent_agents_for_state(issue_state)
-    used = running_issue_count_for_state(running, issue_state)
+  defp state_slots_available?(%Issue{state: issue_state}, %State{} = state) do
+    normalized_state = normalize_issue_state(issue_state)
+    limit = state_concurrency_limit(issue_state, normalized_state)
+
+    used =
+      state.running
+      |> running_issue_count_for_state(normalized_state)
+      |> maybe_add_retry_issue_count_for_state(state.retry_attempts, normalized_state)
+
     limit > used
   end
 
-  defp state_slots_available?(_issue, _running), do: false
+  defp state_slots_available?(_issue, _state), do: false
 
   defp running_issue_count_for_state(running, issue_state) when is_map(running) do
-    normalized_state = normalize_issue_state(issue_state)
-
     Enum.count(running, fn
       {_id, %{issue: %Issue{state: state_name}}} ->
-        normalize_issue_state(state_name) == normalized_state
+        normalize_issue_state(state_name) == issue_state
 
       _ ->
         false
     end)
   end
+
+  defp maybe_add_retry_issue_count_for_state(used, retry_attempts, issue_state) do
+    if exclusive_issue_state?(issue_state) do
+      used + retry_issue_count_for_state(retry_attempts, issue_state)
+    else
+      used
+    end
+  end
+
+  defp retry_issue_count_for_state(retry_attempts, issue_state) when is_map(retry_attempts) do
+    Enum.count(retry_attempts, fn
+      {_id, %{issue_state: state_name}} when is_binary(state_name) ->
+        normalize_issue_state(state_name) == issue_state
+
+      _ ->
+        false
+    end)
+  end
+
+  defp state_concurrency_limit(issue_state, normalized_state) do
+    configured_limit = Config.max_concurrent_agents_for_state(issue_state)
+
+    case Map.get(@exclusive_issue_state_limits, normalized_state) do
+      nil -> configured_limit
+      exclusive_limit -> min(configured_limit, exclusive_limit)
+    end
+  end
+
+  defp exclusive_issue_state?(issue_state), do: Map.has_key?(@exclusive_issue_state_limits, issue_state)
 
   defp candidate_issue?(
          %Issue{
@@ -974,6 +1008,7 @@ defmodule SymphonyElixir.Orchestrator do
     project_slug = pick_retry_value(previous_retry, metadata, :project_slug)
     project_name = pick_retry_value(previous_retry, metadata, :project_name)
     labels = pick_retry_value(previous_retry, metadata, :labels) || []
+    issue_state = pick_retry_value(previous_retry, metadata, :issue_state)
     backend = pick_retry_value(previous_retry, metadata, :backend)
     effort = pick_retry_value(previous_retry, metadata, :effort)
 
@@ -1005,6 +1040,7 @@ defmodule SymphonyElixir.Orchestrator do
             project_slug: project_slug,
             project_name: project_name,
             labels: labels,
+            issue_state: issue_state,
             backend: backend,
             effort: effort
           })
@@ -1025,6 +1061,7 @@ defmodule SymphonyElixir.Orchestrator do
           project_slug: Map.get(retry_entry, :project_slug),
           project_name: Map.get(retry_entry, :project_name),
           labels: Map.get(retry_entry, :labels, []),
+          issue_state: Map.get(retry_entry, :issue_state),
           backend: Map.get(retry_entry, :backend),
           effort: Map.get(retry_entry, :effort)
         }
@@ -1211,6 +1248,7 @@ defmodule SymphonyElixir.Orchestrator do
       project_id: issue.project_id,
       project_slug: issue.project_slug,
       project_name: issue.project_name,
+      issue_state: issue.state,
       labels: issue.labels || []
     }
   end
@@ -1867,7 +1905,7 @@ defmodule SymphonyElixir.Orchestrator do
   end
 
   defp dispatch_slots_available?(%Issue{} = issue, %State{} = state) do
-    available_slots(state) > 0 and state_slots_available?(issue, state.running)
+    available_slots(state) > 0 and state_slots_available?(issue, state)
   end
 
   defp serial_groups(%Issue{labels: labels}) when is_list(labels) do

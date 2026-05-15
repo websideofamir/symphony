@@ -22,6 +22,7 @@ The experimental Elixir implementation currently supports:
   `thinking/max`.
 - Linear label-based OpenCode agent switching with Linear grouped labels like `agent/review`.
 - Linear label-based serial lanes with Linear grouped labels like `serial/release`.
+- Built-in single-lane `Merging` dispatch so only one merge/land issue runs at a time.
 
 If you want to try those features, start with [elixir/README.md](elixir/README.md), which now
 documents backend support, multi-project setup, and label-routing behavior in detail.
