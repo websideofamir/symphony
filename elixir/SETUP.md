@@ -106,11 +106,10 @@ tracker:
   kind: linear
   endpoint: https://api.linear.app/graphql
   api_key: $LINEAR_API_KEY
-providers:
-  openrouter_api_key: $OPENROUTER_API_KEY
   active_states:
     - Todo
     - In Progress
+    - Address Feedback
     - Merging
     - Rework
   terminal_states:
@@ -119,6 +118,8 @@ providers:
     - Canceled
     - Duplicate
     - Done
+providers:
+  openrouter_api_key: $OPENROUTER_API_KEY
 
 polling:
   interval_ms: 5000
@@ -196,6 +197,7 @@ Symphony expects these workflow states in Linear:
 - `Todo`
 - `In Progress`
 - `Human Review`
+- `Address Feedback`
 - `Merging`
 - `Rework`
 - `Done`
@@ -204,6 +206,7 @@ For the example config above, active states are:
 
 - `Todo`
 - `In Progress`
+- `Address Feedback`
 - `Merging`
 - `Rework`
 

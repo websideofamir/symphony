@@ -92,6 +92,7 @@ The agent should be able to talk to Linear, either via a configured Linear MCP s
   - Special case: if a PR is already attached, treat as feedback/rework loop (run full PR feedback sweep, address or explicitly push back, revalidate, return to `Human Review`).
 - `In Progress` -> implementation actively underway.
 - `Human Review` -> PR is attached and validated; waiting on human approval.
+- `Address Feedback` -> incrementally address actionable GitHub PR comments and Linear issue comments, then return to `Human Review`.
 - `Merging` -> approved by human; execute the `land` skill flow (do not call `gh pr merge` directly).
 - `Rework` -> reviewer requested changes; planning + implementation required.
 - `Done` -> terminal state; no further action required.
@@ -102,13 +103,14 @@ The agent should be able to talk to Linear, either via a configured Linear MCP s
 2. Read the current state.
 3. Route to the matching flow:
    - `Backlog` -> do not modify issue content/state; stop and wait for human to move it to `Todo`.
-   - `Todo` -> immediately move to `In Progress`, then ensure bootstrap workpad comment exists (create if missing), then start execution flow.
-     - If PR is already attached, start by reviewing all open PR comments and deciding required changes vs explicit pushback responses.
-   - `In Progress` -> continue execution flow from current scratchpad comment.
-   - `Human Review` -> wait and poll for decision/review updates.
-   - `Merging` -> on entry, open and follow `.codex/skills/land/SKILL.md`; do not call `gh pr merge` directly.
-   - `Rework` -> run rework flow.
-   - `Done` -> do nothing and shut down.
+    - `Todo` -> immediately move to `In Progress`, then ensure bootstrap workpad comment exists (create if missing), then start execution flow.
+      - If PR is already attached, start by reviewing all open PR comments and deciding required changes vs explicit pushback responses.
+    - `In Progress` -> continue execution flow from current scratchpad comment.
+    - `Human Review` -> wait and poll for decision/review updates.
+    - `Address Feedback` -> run address-feedback flow.
+    - `Merging` -> on entry, open and follow `.codex/skills/land/SKILL.md`; do not call `gh pr merge` directly.
+    - `Rework` -> run rework flow.
+    - `Done` -> do nothing and shut down.
 4. Check whether a PR already exists for the current branch and whether it is closed.
    - If a branch PR exists and is `CLOSED` or `MERGED`, treat prior branch work as non-reusable for this run.
    - Create a fresh branch from `origin/main` and restart execution flow as a new attempt.
@@ -164,6 +166,18 @@ When a ticket has an attached PR, run this protocol before moving to `Human Revi
 4. Update the workpad plan/checklist to include each feedback item and its resolution status.
 5. Re-run validation after feedback-driven changes and push updates.
 6. Repeat this sweep until there are no outstanding actionable comments.
+
+## Linear issue feedback sweep protocol (required in Address Feedback)
+
+When a ticket is in `Address Feedback`, read all active Linear issue comments in addition to GitHub PR feedback:
+
+1. Use the Linear tool to fetch the issue description, attachments, and issue comments.
+2. Ignore the `## Codex Workpad` / `## Symphony Workpad` operational comment except for updating progress.
+3. Treat every actionable human instruction in Linear issue comments as blocking until one of these is true:
+   - code/test/docs updated to address it, or
+   - explicit, justified pushback is written in the workpad and, when appropriate, as a direct Linear comment reply/update.
+4. Copy each actionable Linear feedback item into the workpad checklist with its source comment ID or short source label.
+5. Re-run validation after feedback-driven changes and push updates.
 
 ## Blocked-access escape hatch (required behavior)
 
@@ -226,12 +240,27 @@ Use this only when completion is blocked by missing required tools or missing au
 
 1. When the issue is in `Human Review`, do not code or change ticket content.
 2. Poll for updates as needed, including GitHub PR review comments from humans and bots.
-3. If review feedback requires changes, move the issue to `Rework` and follow the rework flow.
-4. If approved, human moves the issue to `Merging`.
-5. When the issue is in `Merging`, open and follow `.codex/skills/land/SKILL.md`, then run the `land` skill in a loop until the PR is merged. Do not call `gh pr merge` directly.
-6. After merge is complete, move the issue to `Done`.
+3. If review feedback requires incremental fixes, move the issue to `Address Feedback`.
+4. If the feedback invalidates the approach and requires a full restart, move the issue to `Rework`.
+5. If approved, human moves the issue to `Merging`.
+6. When the issue is in `Merging`, open and follow `.codex/skills/land/SKILL.md`, then run the `land` skill in a loop until the PR is merged. Do not call `gh pr merge` directly.
+7. After merge is complete, move the issue to `Done`.
 
-## Step 4: Rework handling
+## Step 4: Address Feedback handling
+
+1. Treat `Address Feedback` as incremental patching on the existing branch and PR, not a full restart.
+2. Load the existing workpad comment and preserve prior completed checklist history.
+3. Gather feedback from both channels:
+   - GitHub PR feedback sweep protocol.
+   - Linear issue feedback sweep protocol.
+4. Build a focused checklist containing only the actionable feedback items and required validation.
+5. Implement the requested fixes, or post explicit justified pushback when a requested change should not be made.
+6. Re-run targeted validation and any required ticket/PR validation.
+7. Push the branch and update the workpad with feedback-resolution notes.
+8. Repeat feedback sweeps until no actionable GitHub PR comments or Linear issue comments remain unresolved.
+9. Move the issue back to `Human Review`.
+
+## Step 5: Rework handling
 
 1. Treat `Rework` as a full approach reset, not incremental patching.
 2. Re-read the full issue body and all human comments; explicitly identify what will be done differently this attempt.
@@ -308,4 +337,3 @@ Use this exact structure for the persistent workpad comment and keep it updated 
 
 - <only include when something was confusing during execution>
 ````
-

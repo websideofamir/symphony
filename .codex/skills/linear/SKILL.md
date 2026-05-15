@@ -174,6 +174,33 @@ query IssueDetails($id: String!) {
 }
 ```
 
+Read active issue comments for feedback/rework:
+
+```graphql
+query IssueComments($id: String!, $first: Int!) {
+  issue(id: $id) {
+    id
+    identifier
+    comments(first: $first) {
+      nodes {
+        id
+        body
+        createdAt
+        updatedAt
+        user {
+          id
+          name
+          email
+        }
+      }
+    }
+  }
+}
+```
+
+When using comments as feedback input, ignore the operational workpad comment except for updating
+progress, and extract only actionable human instructions.
+
 ### Query team workflow states for an issue
 
 Use this before changing issue state when you need the exact `stateId`:

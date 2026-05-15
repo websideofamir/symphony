@@ -655,6 +655,8 @@ This section is intentionally redundant so a coding agent can implement the conf
 - `tracker.api_key`: string or `$VAR`, canonical env `LINEAR_API_KEY` when `tracker.kind=linear`
 - `tracker.project_slug`: string, required when `tracker.kind=linear`
 - `tracker.active_states`: list of strings, default `["Todo", "In Progress"]`
+  - Common workflows include `Address Feedback` in `active_states` so agents can make incremental
+    fixes requested in GitHub PR comments or Linear issue comments.
 - `tracker.terminal_states`: list of strings, default `["Closed", "Cancelled", "Canceled", "Duplicate", "Done"]`
 - `polling.interval_ms`: integer, default `30000`
 - `workspace.root`: path, default `<system-temp>/symphony_workspaces`

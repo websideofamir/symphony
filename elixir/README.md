@@ -364,6 +364,7 @@ Configure these exact Linear workflow states for the team:
 - `Todo`
 - `In Progress`
 - `Human Review`
+- `Address Feedback`
 - `Merging`
 - `Rework`
 - `Done`
@@ -372,8 +373,12 @@ For the sample `symphony.yml`, `tracker.active_states` should contain:
 
 - `Todo`
 - `In Progress`
+- `Address Feedback`
 - `Merging`
 - `Rework`
+
+Use `Address Feedback` when the agent should make incremental fixes requested in GitHub PR comments
+or Linear issue comments, then return the issue to `Human Review`.
 
 `Merging` is a built-in exclusive lane: Symphony dispatches at most one active or queued retrying
 issue in `Merging` at a time, regardless of labels or the global concurrency limit.
