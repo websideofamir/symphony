@@ -161,10 +161,11 @@ defmodule SymphonyElixir.AgentRoute do
   def claude_effort(effort) when effort in @effort_values, do: effort
   def claude_effort(_effort), do: nil
 
-  # OpenCode natively supports low/medium/high/max. Symphony's "xhigh" has no
-  # OpenCode counterpart, so it collapses to max.
+  # OpenCode models use low/medium/high/xhigh thinking flags. Symphony's "max"
+  # tier has no OpenCode counterpart, so it collapses to xhigh.
   @spec opencode_variant(String.t() | nil) :: String.t() | nil
-  def opencode_variant("xhigh"), do: "max"
+  def opencode_variant("max"), do: "xhigh"
+  def opencode_variant("xhigh"), do: "xhigh"
   def opencode_variant(effort) when effort in @effort_values, do: effort
   def opencode_variant(_effort), do: nil
 
