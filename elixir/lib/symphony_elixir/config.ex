@@ -78,7 +78,7 @@ defmodule SymphonyElixir.Config do
         }
 
   @default_project_workflow_ref ".workflow/WORKFLOW.md"
-  @default_issue_group %{agent: "build", workflow: @default_project_workflow_ref, thinking: nil, max_concurrent_sessions: 1}
+  @default_issue_group %{agent: "build", workflow: @default_project_workflow_ref, thinking: nil}
   @github_repo_pattern ~r/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/
 
   @spec startup_mode() :: :legacy | :global
@@ -837,17 +837,17 @@ defmodule SymphonyElixir.Config do
 
     @default_issue_group
     |> Map.merge(configured_group)
-    |> normalize_issue_group_defaults()
+    |> normalize_issue_group_defaults(settings)
   end
 
-  defp issue_group_for_state(_state, _settings), do: @default_issue_group
+  defp issue_group_for_state(_state, %Schema{} = settings), do: normalize_issue_group_defaults(@default_issue_group, settings)
 
-  defp normalize_issue_group_defaults(group) when is_map(group) do
+  defp normalize_issue_group_defaults(group, %Schema{} = settings) when is_map(group) do
     %{
       agent: Schema.normalize_optional_string(group[:agent]) || Map.fetch!(@default_issue_group, :agent),
       workflow: Schema.normalize_optional_string(group[:workflow]) || Map.fetch!(@default_issue_group, :workflow),
       thinking: Schema.normalize_optional_effort(group[:thinking]),
-      max_concurrent_sessions: group[:max_concurrent_sessions] || Map.fetch!(@default_issue_group, :max_concurrent_sessions)
+      max_concurrent_sessions: group[:max_concurrent_sessions] || settings.agent.max_concurrent_agents
     }
   end
 

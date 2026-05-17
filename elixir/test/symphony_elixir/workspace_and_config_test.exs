@@ -1291,8 +1291,8 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert Config.max_concurrent_sessions_for_issue_group("Todo") == 1
     assert Config.max_concurrent_sessions_for_issue_group("In Progress") == 4
     assert Config.max_concurrent_sessions_for_issue_group("In Review") == 2
-    assert Config.max_concurrent_sessions_for_issue_group("Closed") == 1
-    assert Config.max_concurrent_sessions_for_issue_group(:not_a_string) == 1
+    assert Config.max_concurrent_sessions_for_issue_group("Closed") == 10
+    assert Config.max_concurrent_sessions_for_issue_group(:not_a_string) == 10
     assert Config.issue_group_agent("In Progress", Config.settings!()) == "review"
     assert Config.issue_group_thinking("In Progress", Config.settings!()) == "high"
 

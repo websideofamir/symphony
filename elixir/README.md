@@ -227,7 +227,8 @@ Notes:
   each backend uses its own default reasoning level.
 - `issue_groups.<state>.agent` sets the default OpenCode agent for that state and defaults to
   `build`.
-- `issue_groups.<state>.max_concurrent_sessions` sets per-group dispatch limits and defaults to `1`.
+- `issue_groups.<state>.max_concurrent_sessions` sets per-group dispatch limits and defaults to
+  `agent.max_concurrent_agents`.
 - `opencode.command` defaults to `opencode serve --hostname 127.0.0.1 --port 0`.
 - `opencode.agent` defaults to `build`.
 - `agent/<name>` Linear labels override `opencode.agent` for a single OpenCode ticket. For example,

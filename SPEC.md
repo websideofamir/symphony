@@ -423,7 +423,7 @@ Fields:
   - `agent`: OpenCode agent name, default `build`.
   - `workflow`: repo-relative workflow path, default `.workflow/WORKFLOW.md`.
   - `thinking`: optional reasoning effort (`low`, `medium`, `high`, `xhigh`, `max`), default unset.
-  - `max_concurrent_sessions`: positive integer, default `1`.
+  - `max_concurrent_sessions`: positive integer, default `agent.max_concurrent_agents`.
 
 #### 5.3.6 `codex` (object)
 
@@ -845,7 +845,7 @@ Global limit:
 Per-group limit:
 
 - `issue_groups[state].max_concurrent_sessions` if present (state key normalized)
-- otherwise fallback to `1`
+- otherwise fallback to `agent.max_concurrent_agents`
 - the global `max_concurrent_agents` cap still applies across all groups
 
 The runtime counts issues by their current tracked state in the `running` map and queued retry
