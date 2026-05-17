@@ -12,9 +12,6 @@ defmodule SymphonyElixir.Orchestrator do
 
   @continuation_retry_delay_ms 1_000
   @failure_retry_base_ms 10_000
-  @serial_label_prefix "serial:"
-  @serial_grouped_label_prefix "serial/"
-  @exclusive_issue_state_limits %{"merging" => 1}
   # Slightly above the dashboard render interval so "checking now…" can render.
   @poll_transition_render_delay_ms 20
   @empty_codex_totals %{
@@ -358,10 +355,6 @@ defmodule SymphonyElixir.Orchestrator do
     select_worker_host(state, preferred_worker_host, backend)
   end
 
-  @doc false
-  @spec serial_groups_for_test(Issue.t()) :: [String.t()]
-  def serial_groups_for_test(%Issue{} = issue), do: serial_groups(issue)
-
   defp reconcile_running_issue_states([], state, _active_states, _terminal_states), do: state
 
   defp reconcile_running_issue_states([issue | rest], state, active_states, terminal_states) do
@@ -610,8 +603,7 @@ defmodule SymphonyElixir.Orchestrator do
     if cheap_dispatch_candidate?(issue, state, running, claimed, active_states, terminal_states) do
       case resolve_issue_dispatch(issue) do
         {:ok, _issue_config, route} ->
-          worker_slots_available?(state, nil, route.backend) and
-            serial_slots_available?(issue, state)
+          worker_slots_available?(state, nil, route.backend)
 
         {:error, _reason} ->
           false
@@ -632,55 +624,14 @@ defmodule SymphonyElixir.Orchestrator do
       state_slots_available?(issue, state)
   end
 
-  defp serial_slots_available?(%Issue{} = issue, %State{} = state) do
-    case serial_groups(issue) do
-      [] ->
-        true
-
-      issue_serial_groups ->
-        not serial_group_active?(issue_serial_groups, state)
-    end
-  end
-
-  defp serial_slots_available?(_issue, _state), do: false
-
-  defp serial_group_active?(groups, %State{} = state) when is_list(groups) do
-    running_serial_group_active?(groups, state.running) or
-      retry_serial_group_active?(groups, state.retry_attempts)
-  end
-
-  defp running_serial_group_active?(groups, running) when is_list(groups) and is_map(running) do
-    Enum.any?(running, fn
-      {_id, %{issue: %Issue{} = running_issue}} ->
-        running_issue
-        |> serial_groups()
-        |> Enum.any?(&(&1 in groups))
-
-      _ ->
-        false
-    end)
-  end
-
-  defp retry_serial_group_active?(groups, retry_attempts) when is_list(groups) and is_map(retry_attempts) do
-    Enum.any?(retry_attempts, fn
-      {_id, %{labels: labels}} when is_list(labels) ->
-        labels
-        |> serial_groups_from_labels()
-        |> Enum.any?(&(&1 in groups))
-
-      _ ->
-        false
-    end)
-  end
-
   defp state_slots_available?(%Issue{state: issue_state}, %State{} = state) do
     normalized_state = normalize_issue_state(issue_state)
-    limit = state_concurrency_limit(issue_state, normalized_state)
+    limit = Config.max_concurrent_sessions_for_issue_group(issue_state)
 
     used =
       state.running
       |> running_issue_count_for_state(normalized_state)
-      |> maybe_add_retry_issue_count_for_state(state.retry_attempts, normalized_state)
+      |> Kernel.+(retry_issue_count_for_state(state.retry_attempts, normalized_state))
 
     limit > used
   end
@@ -697,14 +648,6 @@ defmodule SymphonyElixir.Orchestrator do
     end)
   end
 
-  defp maybe_add_retry_issue_count_for_state(used, retry_attempts, issue_state) do
-    if exclusive_issue_state?(issue_state) do
-      used + retry_issue_count_for_state(retry_attempts, issue_state)
-    else
-      used
-    end
-  end
-
   defp retry_issue_count_for_state(retry_attempts, issue_state) when is_map(retry_attempts) do
     Enum.count(retry_attempts, fn
       {_id, %{issue_state: state_name}} when is_binary(state_name) ->
@@ -714,17 +657,6 @@ defmodule SymphonyElixir.Orchestrator do
         false
     end)
   end
-
-  defp state_concurrency_limit(issue_state, normalized_state) do
-    configured_limit = Config.max_concurrent_agents_for_state(issue_state)
-
-    case Map.get(@exclusive_issue_state_limits, normalized_state) do
-      nil -> configured_limit
-      exclusive_limit -> min(configured_limit, exclusive_limit)
-    end
-  end
-
-  defp exclusive_issue_state?(issue_state), do: Map.has_key?(@exclusive_issue_state_limits, issue_state)
 
   defp candidate_issue?(
          %Issue{
@@ -1149,9 +1081,8 @@ defmodule SymphonyElixir.Orchestrator do
     case resolve_issue_dispatch(issue) do
       {:ok, _issue_config, route} ->
         if retry_candidate_issue?(issue, terminal_state_set()) and
-              dispatch_slots_available?(issue, state) and
-              serial_slots_available?(issue, state) and
-              worker_slots_available?(state, metadata[:worker_host], route.backend) do
+               dispatch_slots_available?(issue, state) and
+               worker_slots_available?(state, metadata[:worker_host], route.backend) do
           {:noreply, dispatch_issue(state, issue, attempt, metadata[:worker_host])}
         else
           Logger.debug("No available slots for retrying #{issue_context(issue)}; retrying again")
@@ -1906,48 +1837,6 @@ defmodule SymphonyElixir.Orchestrator do
 
   defp dispatch_slots_available?(%Issue{} = issue, %State{} = state) do
     available_slots(state) > 0 and state_slots_available?(issue, state)
-  end
-
-  defp serial_groups(%Issue{labels: labels}) when is_list(labels) do
-    serial_groups_from_labels(labels)
-  end
-
-  defp serial_groups(_issue), do: []
-
-  defp serial_groups_from_labels(labels) when is_list(labels) do
-    labels
-    |> Enum.map(&serial_group_label_value/1)
-    |> Enum.reject(&is_nil/1)
-    |> Enum.uniq()
-  end
-
-  defp serial_groups_from_labels(_labels), do: []
-
-  defp serial_group_label_value(value) when is_binary(value) do
-    normalized = value |> String.trim() |> String.downcase()
-
-    cond do
-      String.starts_with?(normalized, @serial_grouped_label_prefix) ->
-        serial_group_value(normalized, @serial_grouped_label_prefix)
-
-      String.starts_with?(normalized, @serial_label_prefix) ->
-        serial_group_value(normalized, @serial_label_prefix)
-
-      true ->
-        nil
-    end
-  end
-
-  defp serial_group_label_value(_value), do: nil
-
-  defp serial_group_value(label, prefix) do
-    label
-    |> String.replace_prefix(prefix, "")
-    |> String.trim()
-    |> case do
-      "" -> nil
-      group -> group
-    end
   end
 
   defp running_entry_backend(running_entry) when is_map(running_entry) do

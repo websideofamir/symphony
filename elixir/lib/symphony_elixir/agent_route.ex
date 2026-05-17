@@ -4,7 +4,6 @@ defmodule SymphonyElixir.AgentRoute do
   """
 
   alias SymphonyElixir.Config
-  alias SymphonyElixir.Config.Schema
   alias SymphonyElixir.Linear.Issue
 
   @backend_labels %{
@@ -72,8 +71,8 @@ defmodule SymphonyElixir.AgentRoute do
       |> Enum.uniq()
 
     default_backend = settings.agent.backend
-    default_effort = Schema.normalize_optional_effort(settings.agent.default_effort)
-    default_opencode_agent = issue_state_default_agent(issue, settings)
+    group_thinking = Config.issue_group_thinking(issue, settings)
+    default_opencode_agent = Config.issue_group_agent(issue, settings)
 
     {backend, backend_warnings} =
       case backend_matches do
@@ -96,12 +95,12 @@ defmodule SymphonyElixir.AgentRoute do
           {effort, []}
 
         [] ->
-          {default_effort, []}
+          {group_thinking, []}
 
-        conflicts when is_binary(default_effort) ->
-          {default_effort,
+        conflicts when is_binary(group_thinking) ->
+          {group_thinking,
            [
-             "multiple thinking labels (#{Enum.join(conflicts, ", ")}) found; falling back to default effort #{default_effort}"
+             "multiple thinking labels (#{Enum.join(conflicts, ", ")}) found; falling back to group thinking #{group_thinking}"
            ]}
 
         conflicts ->
@@ -177,12 +176,6 @@ defmodule SymphonyElixir.AgentRoute do
   end
 
   defp normalize_label(_value), do: nil
-
-  defp issue_state_default_agent(%Issue{state: state}, settings) when is_binary(state) do
-    Map.get(settings.agent.default_agents_by_state, Schema.normalize_issue_state(state))
-  end
-
-  defp issue_state_default_agent(_issue, _settings), do: nil
 
   defp conflicting_agent_warning(conflicts, default_agent) when is_binary(default_agent) do
     "multiple OpenCode agent labels (#{Enum.join(conflicts, ", ")}) found; falling back to state default OpenCode agent #{default_agent}"

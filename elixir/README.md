@@ -35,11 +35,10 @@ Symphony stops the active agent for that issue and cleans up matching workspaces
   files.
 - Per-project backend defaults in `symphony.yml`.
 - Per-ticket backend switching through Linear labels like `codex`, `claude`, and `opencode`.
-- Per-ticket thinking/effort switching through Linear labels like `thinking/high` and
-  `thinking/max`.
-- Per-ticket OpenCode agent switching through Linear grouped labels like `agent/review`.
-- Per-ticket serial lanes through Linear grouped labels like `serial/release` so related issues do not run
-  concurrently.
+- Centralized `issue_groups` config for per-state workflow files, OpenCode agents, thinking level,
+  and per-group concurrency.
+- Per-ticket thinking and OpenCode agent overrides through Linear labels like `thinking/high` and
+  `agent/review`.
 - Repo-local workflow prompts and hooks, with global runtime settings kept in `symphony.yml`.
 - Workspace-local Linear tooling so agents can comment on issues and run GraphQL operations without
   committing secrets into the repo.
@@ -122,13 +121,18 @@ server:
   port: 4000
 agent:
   backend: codex
-  default_effort: medium
   max_concurrent_agents: 10
   max_turns: 20
-  default_agents_by_state:
-    Todo: agent-1
-    In Progress: agent-2
-    Address Feedback: review
+issue_groups:
+  Todo:
+    agent: build
+    workflow: .workflow/WORKFLOW.md
+    max_concurrent_sessions: 1
+  Address Feedback:
+    agent: review
+    workflow: .workflow/WORKFLOW_address-feedback.md
+    thinking: high
+    max_concurrent_sessions: 1
 codex:
   command: codex app-server
 claude:
@@ -148,9 +152,6 @@ hooks:
   after_create: |
     mise trust
     mise exec -- mix deps.get
-agent:
-  default_effort: medium
-  max_turns: 20
 ---
 
 You are working on a Linear issue {{ issue.identifier }}.
@@ -168,6 +169,10 @@ workspace:
   root: ~/code/workspaces
 agent:
   backend: codex
+issue_groups:
+  Todo:
+    workflow: .workflow/WORKFLOW.md
+    max_concurrent_sessions: 2
 codex:
   command: codex app-server
 claude:
@@ -206,29 +211,23 @@ Notes:
   `project.slugId`.
 - `projects[].repo` is optional. When set, Symphony clones that repo into a brand-new workspace
   before running `hooks.after_create`.
-- `projects[].workflow` is optional. When omitted, Symphony uses `.workflow/WORKFLOW.md` in the
-  project repo root.
-- Before loading that workflow for a specific issue, Symphony checks for a state-specific workflow
-  file beside it in `.workflow/`. For example, `Todo` uses `.workflow/WORKFLOW_todo.md` when
-  present, and `Address Feedback` uses `.workflow/WORKFLOW_address-feedback.md` when present. If
-  the state-specific file is missing, Symphony falls back to `.workflow/WORKFLOW.md`.
+- `issue_groups.<state>.workflow` selects the repo-relative workflow file for issues in that state.
+  If omitted, the group uses `.workflow/WORKFLOW.md`.
 - `projects[].workspace_root` is optional. When omitted, Symphony uses
   `workspace.root/<project-slug>/<issue-identifier>` for multi-project workflows so different
   projects do not collide under the shared root.
 - `projects[].backend` is optional. When omitted, Symphony falls back to `agent.backend`.
-- In multi-project mode, repo-local `.workflow/WORKFLOW.md` files may define `hooks.*`,
-  `agent.default_effort`, `agent.max_turns`, and the prompt body only.
+- In multi-project mode, repo-local workflow files define `hooks.*` and the prompt body only.
 - `tracker.project_slug` remains the legacy single-project shorthand when you explicitly start
   Symphony with a `WORKFLOW.md` path.
 - `agent.backend` accepts `codex`, `opencode`, or `claude`. If omitted, Symphony infers the
   backend from a single configured provider block; ambiguous or empty provider config falls back to
   `codex`.
-- `agent.default_effort` accepts `low`, `medium`, `high`, or `max`. If unset, each backend uses its
-  own default reasoning level.
-- `agent.max_concurrent_agents_by_state` can set per-state dispatch limits, but `Merging` is always
-  capped at one active or queued issue so merge/land work never overlaps.
-- `agent.default_agents_by_state` maps Linear issue states to default OpenCode agents. It is used
-  only when the effective backend is `opencode` and the ticket has no `agent/<name>` label.
+- `issue_groups.<state>.thinking` accepts `low`, `medium`, `high`, `xhigh`, or `max`. If unset,
+  each backend uses its own default reasoning level.
+- `issue_groups.<state>.agent` sets the default OpenCode agent for that state and defaults to
+  `build`.
+- `issue_groups.<state>.max_concurrent_sessions` sets per-group dispatch limits and defaults to `1`.
 - `opencode.command` defaults to `opencode serve --hostname 127.0.0.1 --port 0`.
 - `opencode.agent` defaults to `build`.
 - `agent/<name>` Linear labels override `opencode.agent` for a single OpenCode ticket. For example,
@@ -387,8 +386,8 @@ For the sample `symphony.yml`, `tracker.active_states` should contain:
 Use `Address Feedback` when the agent should make incremental fixes requested in GitHub PR comments
 or Linear issue comments, then return the issue to `Human Review`.
 
-`Merging` is a built-in exclusive lane: Symphony dispatches at most one active or queued retrying
-issue in `Merging` at a time, regardless of labels or the global concurrency limit.
+`Merging` uses the same configurable group concurrency as every other state. Set
+`issue_groups.Merging.max_concurrent_sessions: 1` when merge/land work must be exclusive.
 
 Default terminal states recognized by Symphony are:
 
@@ -420,44 +419,30 @@ OpenCode agent routing labels:
 
 - `agent/<name>`
 
-Serial routing labels:
-
-- `serial/<group>`
-
 Routing behavior:
 
 - If exactly one backend label is present, Symphony uses that backend for the ticket.
 - If no backend label is present, Symphony falls back to `agent.backend`.
 - If multiple backend labels are present, Symphony logs a warning and falls back to `agent.backend`.
 - If exactly one thinking label is present, Symphony uses that effort for the ticket.
-- If no thinking label is present, Symphony falls back to `agent.default_effort`.
+- If no thinking label is present, Symphony falls back to `issue_groups.<state>.thinking`.
 - If multiple thinking labels are present, Symphony logs a warning and falls back to
-  `agent.default_effort` when set.
+  `issue_groups.<state>.thinking` when set.
 - Legacy `effort/*` labels are still accepted for compatibility.
 - If the ticket uses the OpenCode backend and exactly one `agent/<name>` label is present, Symphony
   uses `<name>` instead of `opencode.agent` for that ticket.
 - If multiple `agent/<name>` labels are present on an OpenCode ticket, Symphony logs a warning and
-  falls back to the issue-state default agent when configured, otherwise to `opencode.agent`.
+  falls back to `issue_groups.<state>.agent`.
 - `agent/<name>` labels are ignored for Codex and Claude tickets.
 - Linear grouped labels are represented as `parent/child`; create an `agent` label group with child
   labels such as `review` or `test-primary-2`. Legacy flat labels like `agent:review` are still
   accepted.
-- If a ticket has `serial/<group>`, Symphony only dispatches it when no running issue has the same
-  serial group.
-- Tickets with different serial groups may still run in parallel, and tickets without `serial/<group>`
-  keep normal parallel dispatch behavior.
-- Use Linear blockers for strict ordering; `serial/<group>` only prevents overlap.
-- Linear grouped labels are represented as `parent/child`; create a `serial` label group with child
-  labels such as `release` or `1`. Legacy flat labels like `serial:release` are still accepted.
-
 Selection precedence:
 
 - Backend precedence is `agent.backend`, then `projects[].backend`, then a backend label on the
   Linear issue.
-- Effort precedence is global `agent.default_effort`, then repo-local `.workflow/WORKFLOW.md`
-  `agent.default_effort`, then a Linear thinking label.
-- OpenCode agent precedence is `opencode.agent`, then `agent.default_agents_by_state[issue.state]`,
-  then a Linear `agent/<name>` label.
+- Effort precedence is `issue_groups.<state>.thinking`, then a Linear thinking label.
+- OpenCode agent precedence is `issue_groups.<state>.agent`, then a Linear `agent/<name>` label.
 
 Example:
 
@@ -465,7 +450,6 @@ Example:
 - Adding a `codex` label switches just that one ticket to Codex.
 - Adding `thinking/max` keeps the same ticket on its chosen backend but increases reasoning effort.
 - Adding `opencode` and `agent/review` switches that ticket to OpenCode's `review` agent.
-- Adding `serial/release` to multiple tickets ensures only one release ticket runs at a time.
 
 ## Web dashboard
 

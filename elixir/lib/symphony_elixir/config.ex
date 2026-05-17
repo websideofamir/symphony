@@ -78,6 +78,7 @@ defmodule SymphonyElixir.Config do
         }
 
   @default_project_workflow_ref ".workflow/WORKFLOW.md"
+  @default_issue_group %{agent: "build", workflow: @default_project_workflow_ref, thinking: nil, max_concurrent_sessions: 1}
   @github_repo_pattern ~r/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/
 
   @spec startup_mode() :: :legacy | :global
@@ -157,18 +158,51 @@ defmodule SymphonyElixir.Config do
   @spec format_error(term()) :: String.t()
   def format_error(reason), do: format_config_error(reason)
 
-  @spec max_concurrent_agents_for_state(term()) :: pos_integer()
-  def max_concurrent_agents_for_state(state_name) when is_binary(state_name) do
-    config = settings!()
+  @spec issue_group_for_issue(map() | String.t() | nil) :: map()
+  def issue_group_for_issue(issue_or_state), do: issue_group_for_issue(issue_or_state, settings!())
 
-    Map.get(
-      config.agent.max_concurrent_agents_by_state,
-      Schema.normalize_issue_state(state_name),
-      config.agent.max_concurrent_agents
-    )
+  @spec issue_group_for_issue(map() | String.t() | nil, Schema.t()) :: map()
+  def issue_group_for_issue(issue_or_state, %Schema{} = settings) do
+    issue_or_state
+    |> issue_state_name()
+    |> issue_group_for_state(settings)
   end
 
-  def max_concurrent_agents_for_state(_state_name), do: settings!().agent.max_concurrent_agents
+  @spec configured_issue_group_for_issue?(map() | String.t() | nil, Schema.t()) :: boolean()
+  def configured_issue_group_for_issue?(issue_or_state, %Schema{} = settings) do
+    case issue_state_name(issue_or_state) do
+      state when is_binary(state) -> Map.has_key?(settings.issue_groups, Schema.normalize_issue_state(state))
+      _ -> false
+    end
+  end
+
+  @spec issue_group_workflow_ref(map() | String.t() | nil, Schema.t()) :: String.t()
+  def issue_group_workflow_ref(issue_or_state, %Schema{} = settings) do
+    issue_or_state
+    |> issue_group_for_issue(settings)
+    |> Map.fetch!(:workflow)
+  end
+
+  @spec issue_group_agent(map() | String.t() | nil, Schema.t()) :: String.t()
+  def issue_group_agent(issue_or_state, %Schema{} = settings) do
+    issue_or_state
+    |> issue_group_for_issue(settings)
+    |> Map.fetch!(:agent)
+  end
+
+  @spec issue_group_thinking(map() | String.t() | nil, Schema.t()) :: String.t() | nil
+  def issue_group_thinking(issue_or_state, %Schema{} = settings) do
+    issue_or_state
+    |> issue_group_for_issue(settings)
+    |> Map.fetch!(:thinking)
+  end
+
+  @spec max_concurrent_sessions_for_issue_group(term()) :: pos_integer()
+  def max_concurrent_sessions_for_issue_group(issue_or_state) do
+    issue_or_state
+    |> issue_group_for_issue()
+    |> Map.fetch!(:max_concurrent_sessions)
+  end
 
   @spec agent_backend() :: String.t()
   def agent_backend, do: settings!().agent.backend
@@ -797,6 +831,30 @@ defmodule SymphonyElixir.Config do
         "Invalid #{config_source_name()} config: #{inspect(other)}"
     end
   end
+
+  defp issue_group_for_state(state, %Schema{} = settings) when is_binary(state) do
+    configured_group = Map.get(settings.issue_groups, Schema.normalize_issue_state(state), %{})
+
+    @default_issue_group
+    |> Map.merge(configured_group)
+    |> normalize_issue_group_defaults()
+  end
+
+  defp issue_group_for_state(_state, _settings), do: @default_issue_group
+
+  defp normalize_issue_group_defaults(group) when is_map(group) do
+    %{
+      agent: Schema.normalize_optional_string(group[:agent]) || Map.fetch!(@default_issue_group, :agent),
+      workflow: Schema.normalize_optional_string(group[:workflow]) || Map.fetch!(@default_issue_group, :workflow),
+      thinking: Schema.normalize_optional_effort(group[:thinking]),
+      max_concurrent_sessions: group[:max_concurrent_sessions] || Map.fetch!(@default_issue_group, :max_concurrent_sessions)
+    }
+  end
+
+  defp issue_state_name(%{state: state}) when is_binary(state), do: state
+  defp issue_state_name(%{"state" => state}) when is_binary(state), do: state
+  defp issue_state_name(state) when is_binary(state), do: state
+  defp issue_state_name(_issue_or_state), do: nil
 
   defp issue_project_slug(%{project_slug: project_slug}) when is_binary(project_slug), do: project_slug
   defp issue_project_slug(%{"project_slug" => project_slug}) when is_binary(project_slug), do: project_slug

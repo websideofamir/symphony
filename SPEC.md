@@ -284,19 +284,15 @@ Fields:
 Workflow file path precedence:
 
 1. Explicit application/runtime setting (set by CLI startup path) in legacy single-project mode.
-2. In multi-project mode, `projects[].workflow` when configured.
+2. In multi-project mode, `issue_groups[issue.state].workflow` when configured.
 3. In multi-project mode, default to `.workflow/WORKFLOW.md` in the routed project repo root.
 4. Legacy single-project default: `WORKFLOW.md` in the current process working directory.
 
-Per-issue workflow override:
+Per-issue workflow selection:
 
-- Before rendering an issue prompt, derive a state-specific workflow filename from the issue's
-  current tracker state by lowercasing it and replacing non-alphanumeric runs with `-`.
-- If `WORKFLOW_<state>.md` exists beside the configured workflow file, use that file for the issue.
-- Examples: `Todo` -> `WORKFLOW_todo.md`; `Address Feedback` ->
-  `WORKFLOW_address-feedback.md`.
-- In the default multi-project layout these files live in `.workflow/` beside `.workflow/WORKFLOW.md`.
-- If the state-specific file is missing, fall back to the base workflow file.
+- Before rendering an issue prompt, look up the issue's normalized tracker state in `issue_groups`.
+- Use that group's repo-relative `workflow` path when configured.
+- If the group or workflow path is missing, fall back to `.workflow/WORKFLOW.md`.
 
 Loader behavior:
 
@@ -422,15 +418,12 @@ Fields:
 - `max_retry_backoff_ms` (integer or string integer)
   - Default: `300000` (5 minutes)
   - Changes should be re-applied at runtime and affect future retry scheduling.
-- `max_concurrent_agents_by_state` (map `state_name -> positive integer`)
-  - Default: empty map.
+- `issue_groups` (map `state_name -> group config`)
   - State keys are normalized (`lowercase`) for lookup.
-  - Invalid entries (non-positive or non-numeric) are ignored.
-- `default_agents_by_state` (map `state_name -> OpenCode agent name`)
-  - Default: empty map.
-  - State keys are normalized (`lowercase`) for lookup.
-  - Applies only when the effective backend is `opencode`.
-  - A ticket-level `agent/<name>` label overrides this default.
+  - `agent`: OpenCode agent name, default `build`.
+  - `workflow`: repo-relative workflow path, default `.workflow/WORKFLOW.md`.
+  - `thinking`: optional reasoning effort (`low`, `medium`, `high`, `xhigh`, `max`), default unset.
+  - `max_concurrent_sessions`: positive integer, default `1`.
 
 #### 5.3.6 `codex` (object)
 
@@ -689,7 +682,7 @@ This section is intentionally redundant so a coding agent can implement the conf
 - `agent.max_concurrent_agents`: integer, default `10`
 - `agent.max_turns`: integer, default `20`
 - `agent.max_retry_backoff_ms`: integer, default `300000` (5m)
-- `agent.max_concurrent_agents_by_state`: map of positive integers, default `{}`
+- `issue_groups`: map of per-state workflow, agent, thinking, and concurrency settings
 - `codex.command`: shell command string, default `codex app-server`
 - `codex.approval_policy`: Codex `AskForApproval` value, default implementation-defined
 - `codex.thread_sandbox`: Codex `SandboxMode` value, default implementation-defined
@@ -849,15 +842,14 @@ Global limit:
 
 - `available_slots = max(max_concurrent_agents - running_count, 0)`
 
-Per-state limit:
+Per-group limit:
 
-- `max_concurrent_agents_by_state[state]` if present (state key normalized)
-- otherwise fallback to global limit
-- The `Merging` state is always an exclusive built-in lane capped at one active or queued retrying
-  issue, regardless of labels or a higher configured state/global limit.
+- `issue_groups[state].max_concurrent_sessions` if present (state key normalized)
+- otherwise fallback to `1`
+- the global `max_concurrent_agents` cap still applies across all groups
 
-The runtime counts issues by their current tracked state in the `running` map. Exclusive built-in
-lanes also count queued retry attempts for the same state.
+The runtime counts issues by their current tracked state in the `running` map and queued retry
+attempts for the same state.
 
 Optional SSH host limit:
 

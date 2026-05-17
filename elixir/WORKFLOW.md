@@ -13,9 +13,6 @@ hooks:
     if [ -f elixir/mix.exs ]; then
       cd elixir && mise exec -- mix workspace.before_remove
     fi
-agent:
-  default_effort: medium
-  max_turns: 20
 ---
 
 

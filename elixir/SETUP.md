@@ -59,8 +59,6 @@ cp /path/to/symphony/elixir/WORKFLOW.md ~/dev/project-b/.workflow/WORKFLOW.md
 In multi-project mode, each repo-local `.workflow/WORKFLOW.md` may define:
 
 - `hooks.*`
-- `agent.default_effort`
-- `agent.max_turns`
 - the Markdown prompt body
 
 It should not define global runtime settings like Linear auth, polling, backend commands, or worker config. Those now live in `symphony.yml`.
@@ -75,9 +73,6 @@ hooks:
       mise trust
       mise install
     fi
-agent:
-  default_effort: medium
-  max_turns: 20
 ---
 
 You are working on Linear issue `{{ issue.identifier }}`.
@@ -89,15 +84,7 @@ Title: {{ issue.title }}
 ```
 
 Customize each repo's `.workflow/WORKFLOW.md` with that repo's build, test, and delivery expectations.
-
-You can also add issue-state-specific workflow files beside the default workflow in `.workflow/`. Symphony checks
-for `WORKFLOW_<state>.md`, where the Linear state is lowercased and spaces/punctuation become `-`:
-
-- `Todo` -> `WORKFLOW_todo.md`
-- `Address Feedback` -> `WORKFLOW_address-feedback.md`
-- `In Progress` -> `WORKFLOW_in-progress.md`
-
-If the state-specific file does not exist, Symphony falls back to `.workflow/WORKFLOW.md`.
+Use `issue_groups.<state>.workflow` in `symphony.yml` when a state needs a different workflow file.
 
 ## 3. Create a global `symphony.yml`
 
@@ -145,13 +132,24 @@ server:
 
 agent:
   backend: codex
-  default_effort: medium
   max_concurrent_agents: 10
   max_turns: 20
-  default_agents_by_state:
-    Todo: agent-1
-    In Progress: agent-2
-    Address Feedback: review
+
+issue_groups:
+  Todo:
+    agent: build
+    workflow: .workflow/WORKFLOW.md
+    max_concurrent_sessions: 1
+  Address Feedback:
+    agent: review
+    workflow: .workflow/WORKFLOW_address-feedback.md
+    thinking: high
+    max_concurrent_sessions: 1
+  Merging:
+    agent: land
+    workflow: .workflow/WORKFLOW_merging.md
+    thinking: max
+    max_concurrent_sessions: 1
 
 codex:
   command: codex app-server
@@ -193,17 +191,13 @@ Backend precedence for a ticket, from lowest to highest, is:
 
 OpenCode agent precedence for a ticket, from lowest to highest, is:
 
-1. `opencode.agent` in `symphony.yml`
-2. `agent.default_agents_by_state[issue.state]` in `symphony.yml`
-3. OpenCode agent routing label on the Linear ticket such as `agent/review`
-
-`agent.default_agents_by_state` only matters when the effective backend is `opencode`.
+1. `issue_groups[issue.state].agent` in `symphony.yml` (defaults to `build`)
+2. OpenCode agent routing label on the Linear ticket such as `agent/review`
 
 Effort precedence, from lowest to highest, is:
 
-1. global `agent.default_effort` in `symphony.yml`
-2. repo-local `.workflow/WORKFLOW.md` `agent.default_effort`
-3. thinking label on the Linear ticket such as `thinking/high`
+1. `issue_groups[issue.state].thinking` in `symphony.yml` (unset by default)
+2. thinking label on the Linear ticket such as `thinking/high`
 
 If you prefer to keep the global config beside the repos, relative paths also work. They resolve relative to the directory containing `symphony.yml`.
 
@@ -230,8 +224,8 @@ For the example config above, active states are:
 - `Merging`
 - `Rework`
 
-`Merging` is serialized automatically: Symphony only works on one active or queued retrying
-`Merging` issue at a time, regardless of labels.
+`Merging` concurrency is configured like every other group. Set
+`issue_groups.Merging.max_concurrent_sessions: 1` when merge/land work must be exclusive.
 
 ## 5. Start Symphony
 
@@ -265,8 +259,8 @@ A simple smoke test:
 1. Create a Linear issue in the `project-a` project.
 2. Start Symphony with your `symphony.yml`.
 3. Confirm Symphony creates or reuses a workspace under `~/work/symphony-workspaces/project-a/...`.
-4. Confirm the prompt and hooks come from `~/dev/project-a/.workflow/WORKFLOW.md`, or from a matching
-   `WORKFLOW_<state>.md` file when one exists.
+4. Confirm the prompt and hooks come from the workflow configured for the issue's group, usually
+   `~/dev/project-a/.workflow/WORKFLOW.md`.
 5. Repeat with an issue in `project-b` and confirm it routes to the other repo and workflow.
 
 If you add a backend label like `opencode` to a ticket, that label overrides the project's default backend for that issue.

@@ -27,14 +27,6 @@ defmodule SymphonyElixir.IssueConfig do
           prompt_template: String.t()
         }
 
-  @spec workflow_path_for_issue(Path.t(), map()) :: Path.t()
-  def workflow_path_for_issue(workflow_path, issue) when is_binary(workflow_path) and is_map(issue) do
-    case issue_workflow_path(workflow_path, issue) do
-      path when is_binary(path) -> path
-      _ -> workflow_path
-    end
-  end
-
   @spec resolve(map(), keyword()) :: {:ok, t()} | {:error, term()}
   def resolve(issue, opts \\ []) when is_map(issue) do
     settings = Keyword.get(opts, :settings)
@@ -51,19 +43,18 @@ defmodule SymphonyElixir.IssueConfig do
   defp resolve_global(issue, %Schema{} = settings) do
     case Config.linear_project_route(issue, settings) do
       %{repo: repo} = project_route when is_binary(repo) and repo != "" ->
-        workflow_ref = Config.project_workflow_ref(project_route)
+        workflow_ref = Config.issue_group_workflow_ref(issue, settings)
 
         with {:ok, repo_root} <- Workspace.ensure_local_repo_cache(project_route, settings),
-             {:ok, workflow_path} <- Config.resolve_project_workflow_path(repo_root, workflow_ref),
-             selected_workflow_path <- workflow_path_for_issue(workflow_path, issue),
-             {:ok, workflow} <- ProjectWorkflow.load(selected_workflow_path) do
+              {:ok, workflow_path} <- Config.resolve_project_workflow_path(repo_root, workflow_ref),
+              {:ok, workflow} <- ProjectWorkflow.load(workflow_path) do
           effective_settings = merge_settings(settings, project_route, workflow)
 
           {:ok,
            %__MODULE__{
              mode: :global,
              project_route: project_route,
-             workflow_path: selected_workflow_path,
+              workflow_path: workflow_path,
              workflow: workflow,
              settings: effective_settings,
              prompt_template: prompt_template(workflow.prompt_template)
@@ -80,7 +71,16 @@ defmodule SymphonyElixir.IssueConfig do
 
   defp resolve_legacy(issue, settings_override) do
     default_workflow_path = Workflow.workflow_file_path()
-    workflow_path = workflow_path_for_issue(default_workflow_path, issue)
+    settings = settings_override || Config.settings!()
+
+    workflow_path =
+      if Config.configured_issue_group_for_issue?(issue, settings) do
+        issue
+        |> Config.issue_group_workflow_ref(settings)
+        |> Path.expand(Path.dirname(default_workflow_path))
+      else
+        default_workflow_path
+      end
 
     workflow_result =
       if workflow_path == default_workflow_path,
@@ -114,50 +114,12 @@ defmodule SymphonyElixir.IssueConfig do
   end
 
   defp merge_settings(%Schema{} = settings, project_route, workflow) do
-    updated_agent =
-      settings.agent
-      |> merge_struct_fields(workflow.agent, [
-        :backend,
-        :default_effort,
-        :max_concurrent_agents,
-        :max_turns,
-        :max_retry_backoff_ms,
-        :max_concurrent_agents_by_state
-      ])
-      |> Map.put(:backend, project_route.backend || workflow.agent.backend || settings.agent.backend)
+    updated_agent = Map.put(settings.agent, :backend, project_route.backend || settings.agent.backend)
 
     %{
       settings
       | agent: updated_agent,
-        hooks: merge_struct_fields(settings.hooks, workflow.hooks, [:after_create, :before_run, :after_run, :before_remove, :timeout_ms]),
-        codex:
-          merge_struct_fields(settings.codex, workflow.codex, [
-            :command,
-            :approval_policy,
-            :thread_sandbox,
-            :turn_sandbox_policy,
-            :turn_timeout_ms,
-            :read_timeout_ms,
-            :stall_timeout_ms
-          ]),
-        opencode:
-          merge_struct_fields(settings.opencode, workflow.opencode, [
-            :command,
-            :agent,
-            :model,
-            :turn_timeout_ms,
-            :read_timeout_ms,
-            :stall_timeout_ms
-          ]),
-        claude:
-          merge_struct_fields(settings.claude, workflow.claude, [
-            :command,
-            :model,
-            :permission_mode,
-            :turn_timeout_ms,
-            :read_timeout_ms,
-            :stall_timeout_ms
-          ])
+        hooks: merge_struct_fields(settings.hooks, workflow.hooks, [:after_create, :before_run, :after_run, :before_remove, :timeout_ms])
     }
   end
 
@@ -179,33 +141,6 @@ defmodule SymphonyElixir.IssueConfig do
   end
 
   defp prompt_template(_prompt), do: Config.default_prompt_template()
-
-  defp issue_workflow_path(workflow_path, %{state: state}) when is_binary(state) do
-    suffix = workflow_state_suffix(state)
-
-    cond do
-      suffix == "" ->
-        nil
-
-      true ->
-        candidate = Path.join(Path.dirname(workflow_path), "WORKFLOW_#{suffix}.md")
-        if File.regular?(candidate), do: candidate
-    end
-  end
-
-  defp issue_workflow_path(workflow_path, %{"state" => state}) when is_binary(state) do
-    issue_workflow_path(workflow_path, %{state: state})
-  end
-
-  defp issue_workflow_path(_workflow_path, _issue), do: nil
-
-  defp workflow_state_suffix(state) when is_binary(state) do
-    state
-    |> String.trim()
-    |> String.downcase()
-    |> String.replace(~r/[^a-z0-9]+/, "-")
-    |> String.trim("-")
-  end
 
   defp project_slug(%{project_slug: project_slug}) when is_binary(project_slug), do: project_slug
   defp project_slug(%{"project_slug" => project_slug}) when is_binary(project_slug), do: project_slug

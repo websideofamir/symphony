@@ -18,15 +18,11 @@ The experimental Elixir implementation currently supports:
 - Multi-project routing from one Symphony instance across multiple repos.
 - Repo-local `.workflow/WORKFLOW.md` files with a global `symphony.yml` runtime config.
 - Linear label-based backend switching with labels like `codex`, `claude`, and `opencode`.
-- Linear label-based thinking/effort switching with labels like `thinking/high` and
-  `thinking/max`.
-- Linear label-based OpenCode agent switching with Linear grouped labels like `agent/review`.
-- State-based OpenCode default agents through `agent.default_agents_by_state`.
-- Linear label-based serial lanes with Linear grouped labels like `serial/release`.
-- Per-state workflow prompt overrides through files like `.workflow/WORKFLOW_todo.md` and
-  `.workflow/WORKFLOW_address-feedback.md` with fallback to `.workflow/WORKFLOW.md`.
+- Centralized per-state `issue_groups` config for workflow files, OpenCode agents, thinking level,
+  and per-group concurrency.
+- Linear label-based per-ticket overrides with labels like `thinking/high` and `agent/review`.
 - `Address Feedback` workflow state for incremental fixes from GitHub PR comments or Linear issue comments.
-- Built-in single-lane `Merging` dispatch so only one merge/land issue runs at a time.
+- Configurable `Merging` dispatch concurrency through `issue_groups.Merging.max_concurrent_sessions`.
 
 If you want to try those features, start with [elixir/README.md](elixir/README.md), which now
 documents backend support, multi-project setup, and label-routing behavior in detail.
@@ -50,8 +46,8 @@ Tell your favorite coding agent to build Symphony in a programming language of y
 
 Check out [elixir/README.md](elixir/README.md) for instructions on how to set up your environment
 and run the Elixir-based Symphony implementation. It includes setup guidance for OpenCode, Claude
-Code, multi-project routing, and Linear label-based backend, effort, and OpenCode agent switching.
-It also documents `serial/<group>` labels for preventing related issues from running concurrently.
+Code, multi-project routing, centralized issue group config, and Linear label-based backend, effort,
+and OpenCode agent switching.
 You can also ask your favorite coding agent to help with the setup:
 
 > Set up Symphony for my repository based on

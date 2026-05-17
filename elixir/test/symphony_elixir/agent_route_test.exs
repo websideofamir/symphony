@@ -3,10 +3,10 @@ defmodule SymphonyElixir.AgentRouteTest do
 
   alias SymphonyElixir.AgentRoute
 
-  test "unlabeled issue uses configured fallback backend and effort" do
+  test "unlabeled issue uses configured fallback backend and group thinking" do
     write_workflow_file!(Workflow.workflow_file_path(),
       agent_backend: "claude",
-      default_effort: "medium"
+      issue_groups: %{"Todo" => %{thinking: "medium"}}
     )
 
     route = AgentRoute.resolve(issue_fixture([]))
@@ -27,7 +27,7 @@ defmodule SymphonyElixir.AgentRouteTest do
   test "thinking labels override the configured fallback effort" do
     write_workflow_file!(Workflow.workflow_file_path(),
       agent_backend: "codex",
-      default_effort: "low"
+      issue_groups: %{"Todo" => %{thinking: "low"}}
     )
 
     assert AgentRoute.resolve(issue_fixture(["thinking/high"])).effort == "high"
@@ -75,23 +75,23 @@ defmodule SymphonyElixir.AgentRouteTest do
     assert route.warnings == []
   end
 
-  test "conflicting agent labels warn and fall back to configured OpenCode agent" do
+  test "conflicting agent labels warn and fall back to group OpenCode agent" do
     write_workflow_file!(Workflow.workflow_file_path(), agent_backend: "opencode")
 
     route = AgentRoute.resolve(issue_fixture(["agent/review", "agent:build"]))
 
     assert route.backend == "opencode"
-    assert route.opencode_agent == nil
+    assert route.opencode_agent == "build"
 
     assert route.warnings == [
-             "multiple OpenCode agent labels (review, build) found; falling back to configured opencode.agent"
+             "multiple OpenCode agent labels (review, build) found; falling back to state default OpenCode agent build"
            ]
   end
 
-  test "issue state default agent is used for OpenCode when no agent label is present" do
+  test "issue group agent is used for OpenCode when no agent label is present" do
     write_workflow_file!(Workflow.workflow_file_path(),
       agent_backend: "opencode",
-      default_agents_by_state: %{"Todo" => "build", "Address Feedback" => "review"}
+      issue_groups: %{"Todo" => %{agent: "build"}, "Address Feedback" => %{agent: "review"}}
     )
 
     todo_route = AgentRoute.resolve(%{issue_fixture([]) | state: "Todo"})
@@ -101,10 +101,10 @@ defmodule SymphonyElixir.AgentRouteTest do
     assert feedback_route.opencode_agent == "review"
   end
 
-  test "agent labels override issue state default agent" do
+  test "agent labels override issue group agent" do
     write_workflow_file!(Workflow.workflow_file_path(),
       agent_backend: "opencode",
-      default_agents_by_state: %{"Todo" => "build"}
+      issue_groups: %{"Todo" => %{agent: "build"}}
     )
 
     route = AgentRoute.resolve(issue_fixture(["agent/review"]))
@@ -112,10 +112,10 @@ defmodule SymphonyElixir.AgentRouteTest do
     assert route.opencode_agent == "review"
   end
 
-  test "conflicting agent labels fall back to issue state default agent when configured" do
+  test "conflicting agent labels fall back to issue group agent" do
     write_workflow_file!(Workflow.workflow_file_path(),
       agent_backend: "opencode",
-      default_agents_by_state: %{"Todo" => "build"}
+      issue_groups: %{"Todo" => %{agent: "build"}}
     )
 
     route = AgentRoute.resolve(issue_fixture(["agent/review", "agent:triage"]))
@@ -130,7 +130,7 @@ defmodule SymphonyElixir.AgentRouteTest do
   test "legacy effort labels still resolve for compatibility" do
     write_workflow_file!(Workflow.workflow_file_path(),
       agent_backend: "codex",
-      default_effort: "low"
+      issue_groups: %{"Todo" => %{thinking: "low"}}
     )
 
     assert AgentRoute.resolve(issue_fixture(["effort/high"])).effort == "high"
@@ -162,10 +162,10 @@ defmodule SymphonyElixir.AgentRouteTest do
            ]
   end
 
-  test "conflicting thinking labels warn and fall back to configured effort" do
+  test "conflicting thinking labels warn and fall back to group thinking" do
     write_workflow_file!(Workflow.workflow_file_path(),
       agent_backend: "codex",
-      default_effort: "medium"
+      issue_groups: %{"Todo" => %{thinking: "medium"}}
     )
 
     route = AgentRoute.resolve(issue_fixture(["thinking/low", "thinking/max"]))
@@ -174,7 +174,7 @@ defmodule SymphonyElixir.AgentRouteTest do
     assert route.effort == "medium"
 
     assert route.warnings == [
-             "multiple thinking labels (low, max) found; falling back to default effort medium"
+             "multiple thinking labels (low, max) found; falling back to group thinking medium"
            ]
   end
 

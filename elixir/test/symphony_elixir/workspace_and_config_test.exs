@@ -763,15 +763,18 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert Orchestrator.should_dispatch_issue_for_test(issue, state)
   end
 
-  test "merging issues are globally serialized regardless of labels" do
-    write_workflow_file!(Workflow.workflow_file_path(), tracker_active_states: ["Todo", "In Progress", "Merging"])
+  test "merging concurrency is controlled by issue group config" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_active_states: ["Todo", "In Progress", "Merging"],
+      issue_groups: %{"Merging" => %{max_concurrent_sessions: 2}}
+    )
 
     running_issue = %Issue{
       id: "merging-running-1",
       identifier: "MT-1050",
       title: "Running merge",
       state: "Merging",
-      labels: ["agent/review", "serial/release"]
+      labels: ["agent/review"]
     }
 
     state = %Orchestrator.State{
@@ -789,7 +792,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       identifier: "MT-1051",
       title: "Waiting merge",
       state: "Merging",
-      labels: ["agent/build", "serial/frontend"]
+      labels: ["agent/build"]
     }
 
     todo_issue = %Issue{
@@ -797,15 +800,18 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       identifier: "MT-1052",
       title: "Todo work",
       state: "Todo",
-      labels: ["agent/build", "serial/frontend"]
+      labels: ["agent/build"]
     }
 
-    refute Orchestrator.should_dispatch_issue_for_test(merging_issue, state)
+    assert Orchestrator.should_dispatch_issue_for_test(merging_issue, state)
     assert Orchestrator.should_dispatch_issue_for_test(todo_issue, state)
   end
 
-  test "queued merging retries hold the global merging lane" do
-    write_workflow_file!(Workflow.workflow_file_path(), tracker_active_states: ["Todo", "In Progress", "Merging"])
+  test "queued retries count against issue group concurrency" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_active_states: ["Todo", "In Progress", "Merging"],
+      issue_groups: %{"Merging" => %{max_concurrent_sessions: 1}}
+    )
 
     state = %Orchestrator.State{
       max_concurrent_agents: 3,
@@ -816,7 +822,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
         "merging-retry-1" => %{
           attempt: 1,
           issue_state: "Merging",
-          labels: ["agent/review", "serial/release"]
+          labels: ["agent/review"]
         }
       }
     }
@@ -826,7 +832,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       identifier: "MT-1053",
       title: "Waiting on retry merge lane",
       state: "Merging",
-      labels: ["agent/build", "serial/frontend"]
+      labels: ["agent/build"]
     }
 
     todo_issue = %Issue{
@@ -834,14 +840,14 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       identifier: "MT-1054",
       title: "Todo work beside retry",
       state: "Todo",
-      labels: ["agent/build", "serial/frontend"]
+      labels: ["agent/build"]
     }
 
     refute Orchestrator.should_dispatch_issue_for_test(merging_issue, state)
     assert Orchestrator.should_dispatch_issue_for_test(todo_issue, state)
   end
 
-  test "serial labels prevent concurrent dispatch within the same group" do
+  test "serial labels no longer affect dispatch" do
     running_issue = %Issue{
       id: "serial-running-1",
       identifier: "MT-1100",
@@ -860,20 +866,12 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       retry_attempts: %{}
     }
 
-    same_group_issue = %Issue{
+    ignored_label_issue = %Issue{
       id: "serial-waiting-1",
       identifier: "MT-1101",
       title: "Waiting serial work",
       state: "Todo",
       labels: ["serial/release"]
-    }
-
-    different_group_issue = %Issue{
-      id: "serial-ready-1",
-      identifier: "MT-1102",
-      title: "Independent serial work",
-      state: "Todo",
-      labels: ["serial/frontend"]
     }
 
     parallel_issue = %Issue{
@@ -884,55 +882,8 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       labels: []
     }
 
-    refute Orchestrator.should_dispatch_issue_for_test(same_group_issue, state)
-    assert Orchestrator.should_dispatch_issue_for_test(different_group_issue, state)
+    assert Orchestrator.should_dispatch_issue_for_test(ignored_label_issue, state)
     assert Orchestrator.should_dispatch_issue_for_test(parallel_issue, state)
-  end
-
-  test "serial labels treat queued retries as active within the same group" do
-    state = %Orchestrator.State{
-      max_concurrent_agents: 3,
-      running: %{},
-      claimed: MapSet.new(["serial-retry-1"]),
-      agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
-      retry_attempts: %{
-        "serial-retry-1" => %{
-          attempt: 1,
-          labels: ["serial/release"]
-        }
-      }
-    }
-
-    same_group_issue = %Issue{
-      id: "serial-waiting-retry-1",
-      identifier: "MT-1105",
-      title: "Waiting on retry lane",
-      state: "Todo",
-      labels: ["serial/release"]
-    }
-
-    different_group_issue = %Issue{
-      id: "serial-ready-retry-1",
-      identifier: "MT-1106",
-      title: "Different retry lane",
-      state: "Todo",
-      labels: ["serial/frontend"]
-    }
-
-    refute Orchestrator.should_dispatch_issue_for_test(same_group_issue, state)
-    assert Orchestrator.should_dispatch_issue_for_test(different_group_issue, state)
-  end
-
-  test "serial labels are normalized and deduplicated" do
-    issue = %Issue{
-      id: "serial-normalized-1",
-      identifier: "MT-1104",
-      title: "Normalized serial labels",
-      state: "Todo",
-      labels: [" SERIAL/Release ", "serial/release", "serial/", "serial:legacy", "backend"]
-    }
-
-    assert Orchestrator.serial_groups_for_test(issue) == ["release", "legacy"]
   end
 
   test "dispatch revalidation skips stale todo issue once a non-terminal blocker appears" do
@@ -1122,7 +1073,8 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert config.worker.max_concurrent_agents_per_host == nil
     assert config.agent.max_concurrent_agents == 10
     assert config.agent.backend == "opencode"
-    assert config.agent.default_effort == nil
+    assert Config.issue_group_agent(%{state: "Todo"}, config) == "build"
+    assert Config.issue_group_thinking(%{state: "Todo"}, config) == nil
     assert config.codex.command == "codex app-server"
     assert config.codex.thread_sandbox == "workspace-write"
     assert config.codex.turn_timeout_ms == 3_600_000
@@ -1247,7 +1199,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       poll_interval_ms: %{bad: true},
       workspace_root: 123,
       max_retry_backoff_ms: 0,
-      max_concurrent_agents_by_state: %{"Todo" => "1", "Review" => 0, "Done" => "bad"},
+      issue_groups: %{"Todo" => %{max_concurrent_sessions: 0}},
       hook_timeout_ms: 0,
       observability_enabled: "maybe",
       observability_refresh_ms: %{bad: true},
@@ -1316,28 +1268,33 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert config.workspace.root == "env:#{workspace_env_var}"
   end
 
-  test "config supports per-state max concurrent agent overrides" do
+  test "config supports issue group defaults and concurrency overrides" do
     workflow = """
     ---
     agent:
       max_concurrent_agents: 10
-      max_concurrent_agents_by_state:
-        todo: 1
-        "In Progress": 4
-        "In Review": 2
+    issue_groups:
+      todo:
+        max_concurrent_sessions: 1
+      "In Progress":
+        max_concurrent_sessions: 4
+        agent: review
+        thinking: high
+      "In Review":
+        max_concurrent_sessions: 2
     ---
     """
 
     File.write!(Workflow.workflow_file_path(), workflow)
 
     assert Config.settings!().agent.max_concurrent_agents == 10
-    assert Config.max_concurrent_agents_for_state("Todo") == 1
-    assert Config.max_concurrent_agents_for_state("In Progress") == 4
-    assert Config.max_concurrent_agents_for_state("In Review") == 2
-    assert Config.max_concurrent_agents_for_state("Closed") == 10
-    assert Config.max_concurrent_agents_for_state(:not_a_string) == 10
-
-    assert Config.settings!().agent.default_agents_by_state == %{}
+    assert Config.max_concurrent_sessions_for_issue_group("Todo") == 1
+    assert Config.max_concurrent_sessions_for_issue_group("In Progress") == 4
+    assert Config.max_concurrent_sessions_for_issue_group("In Review") == 2
+    assert Config.max_concurrent_sessions_for_issue_group("Closed") == 1
+    assert Config.max_concurrent_sessions_for_issue_group(:not_a_string) == 1
+    assert Config.issue_group_agent("In Progress", Config.settings!()) == "review"
+    assert Config.issue_group_thinking("In Progress", Config.settings!()) == "high"
 
     write_workflow_file!(Workflow.workflow_file_path(), worker_max_concurrent_agents_per_host: 2)
     assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
@@ -1494,25 +1451,27 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert claude_settings.claude.command == "claude"
   end
 
-  test "schema parse accepts valid default effort" do
+  test "schema parse accepts valid issue group thinking" do
     assert {:ok, settings} =
              Schema.parse(%{
                tracker: %{kind: "memory"},
-               agent: %{backend: "codex", default_effort: " MAX "}
+               agent: %{backend: "codex"},
+               issue_groups: %{todo: %{thinking: " MAX "}}
              })
 
     assert settings.agent.backend == "codex"
-    assert settings.agent.default_effort == "max"
+    assert settings.issue_groups["todo"].thinking == "max"
   end
 
-  test "schema parse rejects invalid default effort" do
+  test "schema parse rejects invalid issue group thinking" do
     assert {:error, {:invalid_workflow_config, message}} =
              Schema.parse(%{
                tracker: %{kind: "memory"},
-               agent: %{backend: "codex", default_effort: "turbo"}
+               agent: %{backend: "codex"},
+               issue_groups: %{todo: %{thinking: "turbo"}}
              })
 
-    assert message =~ "agent.default_effort"
+    assert message =~ "issue_groups"
     assert message =~ "low, medium, high, xhigh, max"
   end
 
@@ -1707,10 +1666,10 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert Config.agent_stall_timeout_ms() == 123_000
   end
 
-  test "config runtime helpers preserve existing behavior when default effort is unset" do
-    write_workflow_file!(Workflow.workflow_file_path(), agent_backend: "codex", default_effort: nil)
+  test "config runtime helpers preserve existing behavior when group thinking is unset" do
+    write_workflow_file!(Workflow.workflow_file_path(), agent_backend: "codex")
 
-    assert Config.settings!().agent.default_effort == nil
+    assert Config.issue_group_thinking(%{state: "Todo"}, Config.settings!()) == nil
     assert Config.codex_command() == "codex app-server"
     assert Config.codex_command("max") == "codex app-server -c model_reasoning_effort=xhigh"
     assert Config.codex_command("xhigh") == "codex app-server -c model_reasoning_effort=xhigh"
@@ -1829,8 +1788,8 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
                ".workflow/WORKFLOW.md"
 
       assert {:ok, issue_config} = SymphonyElixir.IssueConfig.resolve(issue)
-      assert issue_config.workflow_path == Path.join(repo_root, ".workflow/WORKFLOW_todo.md")
-      assert PromptBuilder.build_prompt(issue, issue_config: issue_config) == "Todo folder workflow for AP-44"
+      assert issue_config.workflow_path == Path.join(repo_root, ".workflow/WORKFLOW.md")
+      assert PromptBuilder.build_prompt(issue, issue_config: issue_config) == "Default folder workflow for AP-44"
     after
       File.rm_rf(test_root)
     end
@@ -2006,7 +1965,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     end
   end
 
-  test "project workflow accepts legacy runtime keys and partial provider overrides" do
+  test "project workflow ignores legacy runtime keys and keeps prompt" do
     workflow_path =
       Path.join(
         System.tmp_dir!(),
@@ -2034,9 +1993,8 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
       assert {:ok, workflow} = ProjectWorkflow.load(workflow_path)
 
-      assert workflow.codex.command == "codex app-server --model gpt-5.4"
-      assert workflow.agent.max_concurrent_agents == 5
-      assert workflow.agent.max_turns == 7
+      assert workflow.prompt_template == "Legacy-compatible project workflow\n"
+      assert workflow.hooks.after_create == nil
     after
       File.rm_rf(workflow_path)
     end
@@ -2086,14 +2044,13 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       init_repo!(repo_root, "project b\n")
 
       write_project_workflow_repo_file!(repo_root, "CLAUDE_WORKFLOW.md",
-        default_effort: "high",
         max_turns: 7,
         prompt: "Project-specific prompt for {{ issue.identifier }}"
       )
 
       write_symphony_config_file!(config_path,
-        default_effort: "low",
         max_turns: 20,
+        issue_groups: %{"Todo" => %{workflow: "CLAUDE_WORKFLOW.md", thinking: "low"}},
         projects: [
           %{
             linear_project: "project-b",
@@ -2110,14 +2067,14 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
         %Issue{
           identifier: "AP-42",
           title: "Route through project workflow",
+          state: "Todo",
           project_slug: "project-b",
           labels: ["codex", "thinking/max"]
         }
 
       assert {:ok, issue_config} = SymphonyElixir.IssueConfig.resolve(issue)
       assert issue_config.settings.agent.backend == "claude"
-      assert issue_config.settings.agent.default_effort == "high"
-      assert issue_config.settings.agent.max_turns == 7
+      assert issue_config.settings.agent.max_turns == 20
       assert PromptBuilder.build_prompt(issue, issue_config: issue_config) == "Project-specific prompt for AP-42"
 
       route = SymphonyElixir.AgentRoute.resolve(issue, issue_config.settings)
@@ -2128,7 +2085,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     end
   end
 
-  test "issue config uses issue-state project workflow when present" do
+  test "issue config uses configured issue group project workflow" do
     test_root =
       Path.join(
         System.tmp_dir!(),
@@ -2150,6 +2107,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       )
 
       write_symphony_config_file!(config_path,
+        issue_groups: %{"Address Feedback" => %{workflow: "WORKFLOW_address-feedback.md"}},
         projects: [
           %{
             linear_project: "project-feedback",

@@ -43,13 +43,15 @@ defmodule SymphonyElixir.PromptBuilder do
   end
 
   defp legacy_workflow_for_issue(issue) do
-    workflow_path = Workflow.workflow_file_path()
-    selected_workflow_path = IssueConfig.workflow_path_for_issue(workflow_path, issue)
+    settings = Config.settings!()
 
-    if selected_workflow_path == workflow_path do
-      Workflow.current()
+    if Config.configured_issue_group_for_issue?(issue, settings) do
+      case IssueConfig.resolve(issue, settings: settings) do
+        {:ok, %IssueConfig{prompt_template: prompt_template}} -> {:ok, %{prompt_template: prompt_template}}
+        {:error, reason} -> {:error, reason}
+      end
     else
-      Workflow.load(selected_workflow_path)
+      Workflow.current()
     end
   end
 

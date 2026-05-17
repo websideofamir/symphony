@@ -31,13 +31,29 @@ server:
 
 agent:
   backend: codex
-  default_effort: medium
   max_concurrent_agents: 10
   max_turns: 20
-  default_agents_by_state:
-    Todo: agent-1
-    In Progress: agent-2
-    Address Feedback: review
+
+issue_groups:
+  Todo:
+    agent: build
+    workflow: .workflow/WORKFLOW.md
+    thinking: medium
+    max_concurrent_sessions: 1
+  In Progress:
+    agent: build
+    workflow: .workflow/WORKFLOW.md
+    max_concurrent_sessions: 4
+  Address Feedback:
+    agent: review
+    workflow: .workflow/WORKFLOW_address-feedback.md
+    thinking: high
+    max_concurrent_sessions: 2
+  Merging:
+    agent: land
+    workflow: .workflow/WORKFLOW_merging.md
+    thinking: max
+    max_concurrent_sessions: 1
 
 codex:
   command: codex --config shell_environment_policy.inherit=all --config model_reasoning_effort=medium --model gpt-5.4 app-server

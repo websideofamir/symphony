@@ -170,12 +170,10 @@ defmodule SymphonyElixir.TestSupport do
           accounts_daily_token_budget: nil,
           accounts_claude_rate_limit_probe_interval_ms: nil,
           agent_backend: "opencode",
-          default_effort: nil,
           max_concurrent_agents: 10,
           max_turns: 20,
           max_retry_backoff_ms: 300_000,
-          max_concurrent_agents_by_state: %{},
-          default_agents_by_state: %{},
+          issue_groups: %{},
           codex_command: "codex app-server",
           codex_approval_policy: %{reject: %{sandbox_approval: true, rules: true, mcp_elicitations: true}},
           codex_thread_sandbox: "workspace-write",
@@ -248,12 +246,10 @@ defmodule SymphonyElixir.TestSupport do
     accounts_daily_token_budget = Keyword.get(config, :accounts_daily_token_budget)
     accounts_claude_rate_limit_probe_interval_ms = Keyword.get(config, :accounts_claude_rate_limit_probe_interval_ms)
     agent_backend = Keyword.get(config, :agent_backend)
-    default_effort = Keyword.get(config, :default_effort)
     max_concurrent_agents = Keyword.get(config, :max_concurrent_agents)
     max_turns = Keyword.get(config, :max_turns)
     max_retry_backoff_ms = Keyword.get(config, :max_retry_backoff_ms)
-    max_concurrent_agents_by_state = Keyword.get(config, :max_concurrent_agents_by_state)
-    default_agents_by_state = Keyword.get(config, :default_agents_by_state)
+    issue_groups = Keyword.get(config, :issue_groups)
     codex_command = Keyword.get(config, :codex_command)
     codex_approval_policy = Keyword.get(config, :codex_approval_policy)
     codex_thread_sandbox = Keyword.get(config, :codex_thread_sandbox)
@@ -331,12 +327,10 @@ defmodule SymphonyElixir.TestSupport do
         ),
         "agent:",
         "  backend: #{yaml_value(agent_backend)}",
-        "  default_effort: #{yaml_value(default_effort)}",
         "  max_concurrent_agents: #{yaml_value(max_concurrent_agents)}",
         "  max_turns: #{yaml_value(max_turns)}",
         "  max_retry_backoff_ms: #{yaml_value(max_retry_backoff_ms)}",
-        "  max_concurrent_agents_by_state: #{yaml_value(max_concurrent_agents_by_state)}",
-        "  default_agents_by_state: #{yaml_value(default_agents_by_state)}",
+        "issue_groups: #{yaml_value(issue_groups)}",
         "codex:",
         "  command: #{yaml_value(codex_command)}",
         "  approval_policy: #{yaml_value(codex_approval_policy)}",
@@ -392,7 +386,6 @@ defmodule SymphonyElixir.TestSupport do
     config =
       Keyword.merge(
         [
-          default_effort: nil,
           max_turns: nil,
           hook_after_create: nil,
           hook_before_run: nil,
@@ -404,7 +397,6 @@ defmodule SymphonyElixir.TestSupport do
         overrides
       )
 
-    default_effort = Keyword.get(config, :default_effort)
     max_turns = Keyword.get(config, :max_turns)
     hook_after_create = Keyword.get(config, :hook_after_create)
     hook_before_run = Keyword.get(config, :hook_before_run)
@@ -417,7 +409,7 @@ defmodule SymphonyElixir.TestSupport do
       [
         "---",
         project_hooks_yaml(hook_after_create, hook_before_run, hook_after_run, hook_before_remove, hook_timeout_ms),
-        project_agent_yaml(default_effort, max_turns),
+        project_agent_yaml(max_turns),
         "---",
         prompt
       ]
@@ -449,12 +441,10 @@ defmodule SymphonyElixir.TestSupport do
           accounts_daily_token_budget: nil,
           accounts_claude_rate_limit_probe_interval_ms: nil,
           agent_backend: "codex",
-          default_effort: nil,
           max_concurrent_agents: 10,
           max_turns: 20,
           max_retry_backoff_ms: 300_000,
-          max_concurrent_agents_by_state: %{},
-          default_agents_by_state: %{},
+          issue_groups: %{},
           codex_command: "codex app-server",
           codex_approval_policy: %{reject: %{sandbox_approval: true, rules: true, mcp_elicitations: true}},
           codex_thread_sandbox: "workspace-write",
@@ -523,12 +513,10 @@ defmodule SymphonyElixir.TestSupport do
     accounts_daily_token_budget = Keyword.get(config, :accounts_daily_token_budget)
     accounts_claude_rate_limit_probe_interval_ms = Keyword.get(config, :accounts_claude_rate_limit_probe_interval_ms)
     agent_backend = Keyword.get(config, :agent_backend)
-    default_effort = Keyword.get(config, :default_effort)
     max_concurrent_agents = Keyword.get(config, :max_concurrent_agents)
     max_turns = Keyword.get(config, :max_turns)
     max_retry_backoff_ms = Keyword.get(config, :max_retry_backoff_ms)
-    max_concurrent_agents_by_state = Keyword.get(config, :max_concurrent_agents_by_state)
-    default_agents_by_state = Keyword.get(config, :default_agents_by_state)
+    issue_groups = Keyword.get(config, :issue_groups)
     codex_command = Keyword.get(config, :codex_command)
     codex_approval_policy = Keyword.get(config, :codex_approval_policy)
     codex_thread_sandbox = Keyword.get(config, :codex_thread_sandbox)
@@ -612,12 +600,10 @@ defmodule SymphonyElixir.TestSupport do
         ),
         "agent:",
         "  backend: #{yaml_value(agent_backend)}",
-        "  default_effort: #{yaml_value(default_effort)}",
         "  max_concurrent_agents: #{yaml_value(max_concurrent_agents)}",
         "  max_turns: #{yaml_value(max_turns)}",
         "  max_retry_backoff_ms: #{yaml_value(max_retry_backoff_ms)}",
-        "  max_concurrent_agents_by_state: #{yaml_value(max_concurrent_agents_by_state)}",
-        "  default_agents_by_state: #{yaml_value(default_agents_by_state)}",
+        "issue_groups: #{yaml_value(issue_groups)}",
         "codex:",
         "  command: #{yaml_value(codex_command)}",
         "  approval_policy: #{yaml_value(codex_approval_policy)}",
@@ -887,12 +873,11 @@ defmodule SymphonyElixir.TestSupport do
     hooks_yaml(hook_after_create, hook_before_run, hook_after_run, hook_before_remove, timeout_ms)
   end
 
-  defp project_agent_yaml(nil, nil), do: nil
+  defp project_agent_yaml(nil), do: nil
 
-  defp project_agent_yaml(default_effort, max_turns) do
+  defp project_agent_yaml(max_turns) do
     [
       "agent:",
-      !is_nil(default_effort) && "  default_effort: #{yaml_value(default_effort)}",
       !is_nil(max_turns) && "  max_turns: #{yaml_value(max_turns)}"
     ]
     |> Enum.reject(&(&1 in [nil, false]))

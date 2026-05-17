@@ -282,17 +282,12 @@ defmodule SymphonyElixir.Config.Schema do
     import Ecto.Changeset
 
     alias SymphonyElixir.Config.Schema
-    @effort_values ["low", "medium", "high", "xhigh", "max"]
-
     @primary_key false
     embedded_schema do
       field(:backend, :string)
-      field(:default_effort, :string)
       field(:max_concurrent_agents, :integer, default: 10)
       field(:max_turns, :integer, default: 20)
       field(:max_retry_backoff_ms, :integer, default: 300_000)
-      field(:max_concurrent_agents_by_state, :map, default: %{})
-      field(:default_agents_by_state, :map, default: %{})
     end
 
     @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
@@ -302,17 +297,13 @@ defmodule SymphonyElixir.Config.Schema do
         attrs,
         [
           :backend,
-          :default_effort,
           :max_concurrent_agents,
           :max_turns,
-          :max_retry_backoff_ms,
-          :max_concurrent_agents_by_state,
-          :default_agents_by_state
+          :max_retry_backoff_ms
         ],
         empty_values: []
       )
       |> update_change(:backend, &Schema.normalize_optional_string/1)
-      |> update_change(:default_effort, &Schema.normalize_optional_effort/1)
       |> validate_change(:backend, fn :backend, value ->
         cond do
           is_nil(value) ->
@@ -325,25 +316,9 @@ defmodule SymphonyElixir.Config.Schema do
             [backend: "must be one of: codex, opencode, claude"]
         end
       end)
-      |> validate_change(:default_effort, fn :default_effort, value ->
-        cond do
-          is_nil(value) ->
-            []
-
-          value in @effort_values ->
-            []
-
-          true ->
-            [default_effort: "must be one of: #{Enum.join(@effort_values, ", ")}"]
-        end
-      end)
       |> validate_number(:max_concurrent_agents, greater_than: 0)
       |> validate_number(:max_turns, greater_than: 0)
       |> validate_number(:max_retry_backoff_ms, greater_than: 0)
-      |> update_change(:max_concurrent_agents_by_state, &Schema.normalize_state_limits/1)
-      |> Schema.validate_state_limits(:max_concurrent_agents_by_state)
-      |> update_change(:default_agents_by_state, &Schema.normalize_state_agents/1)
-      |> Schema.validate_state_agents(:default_agents_by_state)
     end
   end
 
@@ -670,6 +645,7 @@ defmodule SymphonyElixir.Config.Schema do
   end
 
   embedded_schema do
+    field(:issue_groups, :map, default: %{})
     embeds_one(:tracker, Tracker, on_replace: :update, defaults_to_struct: true)
     embeds_one(:polling, Polling, on_replace: :update, defaults_to_struct: true)
     embeds_one(:workspace, Workspace, on_replace: :update, defaults_to_struct: true)
@@ -753,6 +729,16 @@ defmodule SymphonyElixir.Config.Schema do
   end
 
   @doc false
+  @spec normalize_issue_groups(nil | map()) :: map()
+  def normalize_issue_groups(nil), do: %{}
+
+  def normalize_issue_groups(groups) when is_map(groups) do
+    Enum.reduce(groups, %{}, fn {state_name, raw_group}, acc ->
+      Map.put(acc, normalize_issue_state(to_string(state_name)), normalize_issue_group(raw_group))
+    end)
+  end
+
+  @doc false
   @spec normalize_state_limits(nil | map()) :: map()
   def normalize_state_limits(nil), do: %{}
 
@@ -827,7 +813,9 @@ defmodule SymphonyElixir.Config.Schema do
 
   defp changeset(attrs) do
     %__MODULE__{}
-    |> cast(attrs, [])
+    |> cast(attrs, [:issue_groups])
+    |> update_change(:issue_groups, &normalize_issue_groups/1)
+    |> validate_issue_groups(:issue_groups)
     |> cast_embed(:tracker, with: &Tracker.changeset/2)
     |> cast_embed(:polling, with: &Polling.changeset/2)
     |> cast_embed(:workspace, with: &Workspace.changeset/2)
@@ -845,6 +833,68 @@ defmodule SymphonyElixir.Config.Schema do
     |> cast_embed(:instance, with: &Instance.changeset/2)
     |> cast_embed(:log, with: &Log.changeset/2)
   end
+
+  defp normalize_issue_group(group) when is_map(group) do
+    normalized = normalize_keys(group)
+
+    %{
+      agent: normalize_optional_string(Map.get(normalized, "agent")),
+      workflow: normalize_optional_string(Map.get(normalized, "workflow")),
+      thinking: normalize_optional_effort(Map.get(normalized, "thinking")),
+      max_concurrent_sessions: Map.get(normalized, "max_concurrent_sessions") || Map.get(normalized, "max_concurrent_agents")
+    }
+  end
+
+  defp normalize_issue_group(_group), do: %{}
+
+  defp validate_issue_groups(changeset, field) do
+    validate_change(changeset, field, fn ^field, groups ->
+      Enum.flat_map(groups, fn {state_name, group} ->
+        cond do
+          to_string(state_name) == "" ->
+            [{field, "state names must not be blank"}]
+
+          not is_map(group) ->
+            [{field, "group settings must be maps"}]
+
+          invalid_issue_group_agent?(group) ->
+            [{field, "agent names must not be blank"}]
+
+          invalid_issue_group_workflow?(group) ->
+            [{field, "workflow paths must not be blank"}]
+
+          invalid_issue_group_thinking?(group) ->
+            [{field, "thinking must be one of: low, medium, high, xhigh, max"}]
+
+          invalid_issue_group_limit?(group) ->
+            [{field, "max_concurrent_sessions must be a positive integer"}]
+
+          true ->
+            []
+        end
+      end)
+    end)
+  end
+
+  defp invalid_issue_group_agent?(%{agent: nil}), do: false
+  defp invalid_issue_group_agent?(%{agent: agent}), do: not is_binary(agent) or String.trim(agent) == ""
+  defp invalid_issue_group_agent?(_group), do: false
+
+  defp invalid_issue_group_workflow?(%{workflow: nil}), do: false
+  defp invalid_issue_group_workflow?(%{workflow: workflow}), do: not is_binary(workflow) or String.trim(workflow) == ""
+  defp invalid_issue_group_workflow?(_group), do: false
+
+  defp invalid_issue_group_thinking?(%{thinking: nil}), do: false
+  defp invalid_issue_group_thinking?(%{thinking: thinking}), do: thinking not in ["low", "medium", "high", "xhigh", "max"]
+  defp invalid_issue_group_thinking?(_group), do: false
+
+  defp invalid_issue_group_limit?(%{max_concurrent_sessions: nil}), do: false
+
+  defp invalid_issue_group_limit?(%{max_concurrent_sessions: limit}) do
+    not is_integer(limit) or limit <= 0
+  end
+
+  defp invalid_issue_group_limit?(_group), do: false
 
   defp finalize_settings(settings, raw_config, opts) do
     base_dir = Keyword.get(opts, :base_dir, File.cwd!())

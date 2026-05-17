@@ -131,11 +131,6 @@ defmodule SymphonyElixir.CoreTest do
     assert Map.get(hooks, "after_create") =~ "mise exec -- mix deps.get"
     assert Map.get(hooks, "before_remove") =~ "cd elixir && mise exec -- mix workspace.before_remove"
 
-    agent = Map.get(workflow_config, "agent", %{})
-    assert is_map(agent)
-    assert Map.get(agent, "default_effort") == "medium"
-    assert Map.get(agent, "max_turns") == 20
-
     assert String.trim(prompt) != ""
   end
 
@@ -1159,10 +1154,14 @@ defmodule SymphonyElixir.CoreTest do
     assert prompt == "Retry #2"
   end
 
-  test "prompt builder uses issue-state workflow file when it exists" do
-    write_workflow_file!(Workflow.workflow_file_path(), prompt: "Default workflow for {{ issue.identifier }}")
-
+  test "prompt builder uses configured issue group workflow file" do
     state_workflow_path = Path.join(Path.dirname(Workflow.workflow_file_path()), "WORKFLOW_address-feedback.md")
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      issue_groups: %{"Address Feedback" => %{workflow: "WORKFLOW_address-feedback.md"}},
+      prompt: "Default workflow for {{ issue.identifier }}"
+    )
+
     write_workflow_file!(state_workflow_path, prompt: "Feedback workflow for {{ issue.identifier }}")
 
     issue = %Issue{
@@ -1177,13 +1176,14 @@ defmodule SymphonyElixir.CoreTest do
     assert PromptBuilder.build_prompt(issue) == "Feedback workflow for MT-202"
   end
 
-  test "issue config resolves legacy issue-state workflow settings when present" do
+  test "issue config resolves configured legacy issue group workflow prompt" do
+    state_workflow_path = Path.join(Path.dirname(Workflow.workflow_file_path()), "WORKFLOW_todo.md")
+
     write_workflow_file!(Workflow.workflow_file_path(),
+      issue_groups: %{"Todo" => %{workflow: "WORKFLOW_todo.md"}},
       max_turns: 20,
       prompt: "Default workflow for {{ issue.identifier }}"
     )
-
-    state_workflow_path = Path.join(Path.dirname(Workflow.workflow_file_path()), "WORKFLOW_todo.md")
 
     write_workflow_file!(state_workflow_path,
       max_turns: 3,
